@@ -8,8 +8,10 @@
   <Folder Name="/tests/">
     <Project Path="tests/Rockets.Capture.Tests/Rockets.Capture.Tests.csproj" />
     <Project Path="tests/Rockets.Domain.Tests/Rockets.Domain.Tests.csproj" />
+    <Project Path="tests/Rockets.Storage.Tests/Rockets.Storage.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Rockets.Capture/Rockets.Capture.csproj" />
+    <Project Path="tools/Rockets.StoreBenchmark/Rockets.StoreBenchmark.csproj" />
   </Folder>
 </Solution>

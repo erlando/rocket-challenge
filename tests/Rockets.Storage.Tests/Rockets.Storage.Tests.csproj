@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Rockets.Storage.Sqlite\Rockets.Storage.Sqlite.csproj" />
+  </ItemGroup>
+</Project>

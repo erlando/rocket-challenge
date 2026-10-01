@@ -99,3 +99,37 @@ public class MessageParserTests
         Assert.Contains(expectedInReason, result.Error);
     }
 }
+
+public class MessageParserFromStoredTests
+{
+    [Fact]
+    public void A_stored_message_is_rebuilt_equal_to_the_parsed_original()
+    {
+        var originals = new[]
+        {
+            Launched(1), SpeedIncreased(2, 3000), SpeedDecreased(3, 2500),
+            MissionChanged(4, "SHUTTLE_MIR"), Exploded(5), Unknown(6),
+        };
+
+        foreach (var original in originals)
+        {
+            var result = MessageParser.FromStored(
+                original.Channel, original.MessageNumber, original.MessageTime, original.MessageType, original.PayloadJson);
+
+            Assert.True(result.IsSuccess, result.Error);
+            Assert.Equal(original, result.Message);
+        }
+    }
+
+    [Theory]
+    [InlineData("RocketSpeedIncreased", """{"by":-1}""", "by")]
+    [InlineData("RocketSpeedIncreased", "[]", "message")]
+    [InlineData("RocketSpeedIncreased", "{", "invalid JSON")]
+    public void A_stored_payload_that_no_longer_validates_is_reported(string messageType, string payloadJson, string expectedInReason)
+    {
+        var result = MessageParser.FromStored(Channel, 1, Start, messageType, payloadJson);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(expectedInReason, result.Error);
+    }
+}

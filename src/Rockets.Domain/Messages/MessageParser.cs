@@ -78,23 +78,50 @@ public static class MessageParser
                 return ParseResult.Failure("metadata.messageType must be a non-empty string");
             }
 
-            if (!root.TryGetProperty("message", out var message) || message.ValueKind != JsonValueKind.Object)
-            {
-                return ParseResult.Failure("message must be an object");
-            }
-
-            var payload = PayloadReaders.TryGetValue(messageType, out var read)
-                ? read(message)
-                : PayloadResult.Ok(new UnknownMessage());
-            if (payload.Error is not null)
-            {
-                return ParseResult.Failure(payload.Error);
-            }
-
-            var payloadJson = Compact(message);
-            return ParseResult.Success(new RocketMessage(
-                channel, number, time, messageType, payload.Payload!, payloadJson, Hash(messageType, payloadJson)));
+            return root.TryGetProperty("message", out var message)
+                ? Build(channel, number, time, messageType, message)
+                : ParseResult.Failure("message must be an object");
         }
+    }
+
+    /// <summary>
+    /// Rebuilds a message from the columns it was stored with. The payload goes through the same
+    /// validation as on arrival, so a stored message can't bypass the rules.
+    /// </summary>
+    public static ParseResult FromStored(
+        string channel, long messageNumber, DateTimeOffset messageTime, string messageType, string payloadJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            return Build(channel, messageNumber, messageTime, messageType, document.RootElement);
+        }
+        catch (JsonException e)
+        {
+            return ParseResult.Failure($"invalid JSON: {e.Message}");
+        }
+    }
+
+    /// <summary>Reads the payload for its message type and completes the message with its compact JSON and hash.</summary>
+    private static ParseResult Build(
+        string channel, long messageNumber, DateTimeOffset messageTime, string messageType, JsonElement message)
+    {
+        if (message.ValueKind != JsonValueKind.Object)
+        {
+            return ParseResult.Failure("message must be an object");
+        }
+
+        var payload = PayloadReaders.TryGetValue(messageType, out var read)
+            ? read(message)
+            : PayloadResult.Ok(new UnknownMessage());
+        if (payload.Error is not null)
+        {
+            return ParseResult.Failure(payload.Error);
+        }
+
+        var payloadJson = Compact(message);
+        return ParseResult.Success(new RocketMessage(
+            channel, messageNumber, messageTime, messageType, payload.Payload!, payloadJson, Hash(messageType, payloadJson)));
     }
 
     private sealed record PayloadResult(MessagePayload? Payload, string? Error)

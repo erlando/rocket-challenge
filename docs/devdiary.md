@@ -388,3 +388,58 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed Phase 1 on `main`: the domain model, its tests, the doc updates, and diary entries 18–19.
+
+---
+
+## 2026-10-01 · 20. Phase 2: storage and the SQLite store
+
+**Prompt**
+> start phase 2
+
+**Actions** (test-first)
+1. **Contract:** defined the storage contract in `Rockets.Application/Storage/IMessageStore`:
+   - `InitializeAsync`
+   - `CommitAsync(messages, rejections)`, which returns the duplicates with a payload-mismatch flag
+   - `ReadAllAsync`, `ReadChannelAsync` and `ReadRejectedAsync`
+2. **Tests, then stubs:** wrote 17 new tests against stubs:
+   - 4 domain tests for `MessageParser.FromStored`, which rebuilds a message from its stored columns
+   - an abstract contract-test suite (10 tests) that every store must pass, with a SQLite subclass on a temporary file
+   - 3 SQLite-specific tests: data survives reopening the file, and connections use WAL and the configured `synchronous` level
+3. **Red:** all 17 new tests failed, and the 256 existing ones passed.
+4. **Analyzer fix:** the xUnit analyzer (xUnit1051, which wants a cancellation token in every async call) failed the build, because warnings count as errors. I moved the shared test setup into `tests/Directory.Build.props` and turned that rule off there, explaining why in a comment.
+5. **Implementation:**
+   - `MessageParser.FromStored` shares a payload builder with `Parse`, so a stored message goes through the same validation as on arrival.
+   - `SqliteMessageStore` uses plain Microsoft.Data.Sqlite, with WAL and a `synchronous` pragma on every pooled connection.
+   - A commit writes everything in one transaction, with a prepared `INSERT … ON CONFLICT DO NOTHING`. When the insert hits an existing row, it compares payload hashes.
+   - `messages` is a `WITHOUT ROWID` table keyed on `(channel, message_number)`.
+6. **Green:** all 273 tests passed, with 0 warnings.
+7. **Mutation check:** three bugs were planted one at a time, and the store was restored afterwards. Storage tests failing per bug (of 13):
+   - last write wins on a conflict: 3
+   - a content change is never flagged: 1
+   - a failing insert is skipped and the rest of the batch committed: 1
+   
+   A fourth attempt, committing every row on its own by removing the transaction, didn't compile because of the nullable checks, so the third bug replaced it.
+8. **Benchmark tool** `tools/Rockets.StoreBenchmark`, run in Release. The first run printed numbers in Danish format, so it now uses invariant formatting.
+   - **FULL:** about 1,750 commits per second (0.57 ms each) at batch sizes 1 and 3, and 24k messages per second at batch size 20.
+   - **NORMAL:** 45k commits per second at batch size 1.
+   - **Replay:** reading 100k messages and applying them to ledgers takes about 0.2 s.
+   - **Default grading run, estimated:** 19–57 s with FULL, about 2 s with NORMAL.
+
+**Decision raised with the developer:** the `synchronous` level. I offered FULL (a 2xx means the message survives a power cut; the run takes 19–57 s) or NORMAL (about 2 s; survives a process crash only), and recommended FULL. The developer chose **FULL by default, with NORMAL configurable**.
+
+**Other decisions** (in the decision log; the developer can override them in review)
+- Rejections are committed in the same transaction as the batch, instead of through a separate `RejectAsync`, so the single writer does every write.
+- Plain ADO.NET instead of Dapper.
+- `received_at` comes from an injected `TimeProvider`.
+
+**Updated docs:** ticked Phase 2 in the plan and updated §2.3 and §2.5 there (the interface, Dapper removed, FULL chosen, the replay timing), added the Phase 2 section to the decision log with the benchmark table, and updated the architecture and commands in `CLAUDE.md`. Not committed yet, so the phase can be reviewed first.
+
+---
+
+## 2026-10-01 · 21. Commit Phase 2
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed Phase 2 on `main`: the storage contract, the SQLite store, the contract tests, the benchmark tool, the doc updates, and diary entries 20–21.

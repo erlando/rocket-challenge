@@ -51,3 +51,37 @@ These are the decisions made during the implementation, one section per phase. T
 - After every single delivery, the ledger is compared with a simple reference that applies all distinct messages received so far in order.
 - That reference uses `RocketState.Apply`, so these runs test ordering and duplicates. What each message does is tested separately.
 - A mutation check confirmed both kinds of test catch real bugs. With a pending-order bug, 198 of 242 tests failed. With a speed-sign bug, 3 tests failed, all in the state tests.
+
+## Phase 2: Storage and the SQLite store
+
+**`synchronous=FULL` by default, with `NORMAL` configurable.** This was the developer's choice, made from these measured numbers. Each row is 1,000 sequential commits, the way the single writer will commit:
+
+| synchronous | batch size | commits/s | messages/s | mean commit |
+|---|---:|---:|---:|---:|
+| FULL | 1 | 1,762 | 1,762 | 0.57 ms |
+| FULL | 3 | 1,749 | 5,246 | 0.57 ms |
+| FULL | 20 | 1,209 | 24,172 | 0.83 ms |
+| NORMAL | 1 | 45,359 | 45,359 | 0.02 ms |
+| NORMAL | 3 | 19,854 | 59,563 | 0.05 ms |
+| NORMAL | 20 | 3,251 | 65,028 | 0.31 ms |
+
+- **FULL:** a 2xx means the message survives even a power cut. That is the strict reading of at-least-once delivery: once a message is acknowledged, it is never resent, so losing it would be permanent. The estimated default grading run takes 19–57 s on this machine, and longer on a slower disk.
+- **NORMAL:** about 2 s for the whole run, as fast as the test program itself. The last commits can be lost in a power cut, though not in a process crash.
+
+**Group commit is worth it under FULL, and only there.** With FULL, the cost is the disk sync, so a batch of 3 costs the same as a batch of 1 and triples throughput. With NORMAL, batching barely helps. This confirms the review's point (M1): the single writer is justified mainly because it keeps locks out of the domain code, and batching is a bonus that matters only for durable commits.
+
+**Replaying the full log at startup is cheap.** Reading 100,000 messages takes about 0.16 s; reading them and applying them to ledgers takes about 0.2 s. Saving checkpoints to disk (dropped after the review, M4) would save almost nothing at this scale.
+
+**One commit holds both messages and rejections.** The plan had a separate `RejectAsync`. With rejections in the batch transaction instead, the single writer does every write, and a rejection is durable before its 2xx just like a message.
+
+**Plain Microsoft.Data.Sqlite, not Dapper.** The store has five statements. A prepared insert with reused parameters is the fastest way to write a batch, and Dapper would add a dependency without making the code clearer.
+
+**Schema details.**
+- `messages` is a `WITHOUT ROWID` table keyed on `(channel, message_number)`, so rows are physically ordered by rocket and number. Reading one rocket, or all rockets in order, is a plain scan.
+- Times are stored in round-trip ISO 8601 format, which keeps the offset.
+- `received_at` comes from an injected `TimeProvider`.
+- A stored message is rebuilt through `MessageParser.FromStored`, which applies the same validation as on arrival. A row that no longer validates fails loudly instead of being replayed silently.
+
+**What the tests cover.** A contract-test base class defines what every store must do. A Postgres store will subclass it the same way the SQLite tests do. A mutation check confirmed the contract tests catch three planted bugs: last write wins, a content change never flagged, and a failing insert skipped with the rest of the batch committed.
+
+**Test setup.** A shared `tests/Directory.Build.props` now holds the xUnit v3 setup. It also turns off analyzer rule xUnit1051, which wants a cancellation token in every async call; these tests are short-lived and local, so the token would only add noise.

@@ -99,7 +99,7 @@ Only the writer loop changes rocket state, so the domain code has no locks. Snap
 |---|---|
 | `src/Rockets.Domain` | Pure code with no IO: message types, polymorphic JSON parsing, validation, `RocketState` and the function that applies a message to it, and `RocketLedger` |
 | `src/Rockets.Application` | The writer loop, the `IMessageStore` interface, the snapshot registry, and recovery at startup |
-| `src/Rockets.Storage.Sqlite` | The SQLite store (Microsoft.Data.Sqlite and Dapper). **All SQL lives here.** |
+| `src/Rockets.Storage.Sqlite` | The SQLite store (plain Microsoft.Data.Sqlite). **All SQL lives here.** |
 | `src/Rockets.Api` | Minimal-API endpoints, the composition root, and configuration (port 8088, storage provider, SQLite pragmas) |
 | `src/Rockets.Storage.Postgres` | Stretch goal (Phase 6): the Npgsql store behind the same interface |
 | `tests/Rockets.Domain.Tests` | Unit and property-style tests for the ordering logic |
@@ -144,8 +144,8 @@ The **storage interface** (`IMessageStore`) is the seam for swapping in Postgres
 - `InitializeAsync()`: create the schema if it doesn't exist.
 - `ReadAllAsync()`: stream every stored message, used to replay the log at startup.
 - `ReadChannelAsync(channel)`: read one rocket's messages, used to reload it after a storage error.
-- `CommitAsync(newMessages)`: write a batch atomically, in one transaction. It returns the messages that were already stored, together with any payload-hash mismatches.
-- `RejectAsync(rejected)`: record a message that was rejected (see §2.6).
+- `CommitAsync(messages, rejections)`: write a batch of messages and rejected messages (see §2.6) atomically, in one transaction. It returns the messages that were already stored, together with any payload-hash mismatches. Rejections share the transaction, so the single writer does every write.
+- `ReadRejectedAsync()`: stream the rejected messages, for diagnosis.
 
 **Schema:**
 - `messages(channel, message_number, message_type, message_time, payload_json, payload_hash, received_at)`, with primary key `(channel, message_number)`.
@@ -154,12 +154,12 @@ The **storage interface** (`IMessageStore`) is the seam for swapping in Postgres
 - `rejected_messages(id, received_at, reason, body)`, for messages that fail validation or applying.
 
 **Recovery.** At startup the service replays the full log through the same `RocketLedger` code, then starts accepting requests.
-- Phase 2 measures how long replaying 100k messages takes.
+- Phase 2 measured this: replaying 100k messages (reading them and applying them to ledgers) takes about 0.2 s.
 - If startup ever became too slow, the next step would be snapshots saved to disk, plus a "rebuild from the log" option and a test that a snapshot equals a full replay. That trade-off is documented rather than built.
 
 **SQLite pragmas:**
 - `journal_mode=WAL`, so reads don't block the writer.
-- `synchronous=FULL` or `NORMAL`, chosen in Phase 2 from measured numbers. `FULL` makes a commit safe even across a power cut; `NORMAL` makes it safe across a process crash only.
+- `synchronous=FULL` by default, so a 2xx means the message survives even a power cut. `NORMAL` is configurable and safe across a process crash only. The developer chose this in Phase 2, based on the measured numbers (see the decision log).
 - `busy_timeout`.
 
 ### 2.6 API and error policy
@@ -251,22 +251,23 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
   - after every step, the current state equals the checkpoint plus pending messages applied in order, skipping gaps
 - [x] Added: a mutation check. Four deliberately planted bugs each make tests fail, which shows the tests can catch real mistakes.
 
-### Phase 2: Storage and the SQLite store (~0.75h)
+### Phase 2: Storage and the SQLite store (~0.75h) ✅
 
 **Work**
 - The `IMessageStore` interface.
 - The SQLite implementation: schema creation, pragmas, an atomic commit, payload-hash conflict detection, reading the log, and rejected messages.
 
 **Verify**
-- [ ] Contract tests on a temporary-file database:
+- [x] Contract tests on a temporary-file database:
   - a batch commits atomically
   - inserting a duplicate does nothing, and returns the duplicate along with any payload-hash mismatch
   - `ReadAllAsync` and `ReadChannelAsync` return exactly what was committed
   - a failed transaction leaves nothing behind
-- [ ] One benchmark run that measures:
+- [x] One benchmark run (`tools/Rockets.StoreBenchmark`) that measures:
   - commits per second for `FULL` and `NORMAL` at batch sizes 1, 3 (the default load) and 20 (the stress run)
   - how long replaying 100k messages takes
-- [ ] The `synchronous` setting is chosen from those numbers, and the duration of the default grading run is estimated.
+- [x] The `synchronous` setting is chosen from those numbers (FULL), and the duration of the default grading run is estimated: 19–57 s with FULL, about 2 s with NORMAL.
+- [x] Added: a mutation check. Three planted bugs (last write wins; a content change never flagged; a failing insert skipped and the rest committed) each make the contract tests fail.
 
 ### Phase 3: Ingestion pipeline and API (~2h)
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Work follows the phases in `docs/implementation-plan.md` (Phases 0–1 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+Work follows the phases in `docs/implementation-plan.md` (Phases 0–2 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
 
 Architecture so far:
 - `src/Rockets.Domain` is pure code with no IO.
@@ -12,11 +12,17 @@ Architecture so far:
   - `RocketState.Apply` applies one message, and callers must apply messages in messageNumber order.
   - `RocketLedger` is the immutable ordering model for one rocket. It holds a checkpoint (the exact state for messages 1..N), the pending messages above N, and the current state (the checkpoint plus pending, applied in order).
   - Domain changes must keep `RocketLedgerPropertyTests` green. Those seeded shuffle-and-redelivery runs check the ledger after every step.
+- `src/Rockets.Application/Storage/IMessageStore` is the storage seam: an append-only message log, which is the only stored state.
+  - `CommitAsync(messages, rejections)` writes one atomic batch and reports duplicates, with a payload-hash mismatch flag.
+  - Reads stream messages per channel in messageNumber order.
+- `src/Rockets.Storage.Sqlite` is the only place with SQL. It uses WAL, with `synchronous=FULL` by default (the developer's choice; `NORMAL` is configurable).
+- Every store must pass `tests/Rockets.Storage.Tests/MessageStoreContractTests`. A new store subclasses it.
 
 - Build: `dotnet build` (.NET 10 SDK, warnings are errors, package versions in `Directory.Packages.props`)
-- Test: `dotnet test`. xUnit v3 runs on Microsoft.Testing.Platform, which `global.json` opts into, so VSTest options don't apply.
+- Test: `dotnet test`. xUnit v3 runs on Microsoft.Testing.Platform, which `global.json` opts into, so VSTest options don't apply. Shared test-project settings are in `tests/Directory.Build.props`.
 - Run a single test: `dotnet test --project tests/<Project> --filter-method "*Name*"` (also `--filter-class`)
 - Run the service: `dotnet run --project src/Rockets.Api`, which listens on http://localhost:8088.
+- Store benchmark: `dotnet run -c Release --project tools/Rockets.StoreBenchmark`, which measures commit throughput per synchronous level and batch size, plus replay time.
 - Capture and probe tool: `tools/Rockets.Capture`, with the commands `serve`, `analyze <file>` and `compare <a> <b>`.
   - `scripts/probe.sh <name> <timeout> [rockets args] -- [server args]` runs the test program against the capture server and prints the analysis.
   - Captures go in `artifacts/`, which is git-ignored.

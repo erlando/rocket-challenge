@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rockets.Storage.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Rockets.Application\Rockets.Application.csproj" />
   </ItemGroup>
 </Project>
