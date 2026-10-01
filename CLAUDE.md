@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Work follows the phases in `docs/implementation-plan.md` (Phases 0–4 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+Work follows the phases in `docs/implementation-plan.md` (Phases 0–5 are done; Phase 6, Postgres, is optional). Record decisions per phase in `docs/decision-log.md`. `README.md` is the reviewer-facing summary, so keep its numbers and claims in step with the code and the decision log. Update this file as the architecture takes shape.
 
 Architecture so far:
 - `src/Rockets.Domain` is pure code with no IO.

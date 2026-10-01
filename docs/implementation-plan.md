@@ -332,21 +332,24 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
   - 6.5 s with `NORMAL`
   - the average batch is 1.1–1.3, because the test program barely overlaps its requests
 
-### Phase 5: Documentation (~0.5h)
+### Phase 5: Documentation (~0.5h) ✅
 
 **Work**
 - `README.md`:
   - how to run the service, the tests and the e2e script
   - the API, with examples
   - an architecture diagram
-  - the decision log, assembled from the paragraphs written during each phase, covering §2.1 with its alternatives and trade-offs
+  - the decision log, assembled from the paragraphs written during each phase, covering §2.1 with its alternatives and trade-offs. *As built:* the README has a summary table of the decisions and links to `docs/decision-log.md` for the reasoning and measurements of each phase, rather than copying them.
   - known limitations: a gap that never fills stops the checkpoint and grows pending; the service runs as a single process; the explosion rule is an assumption; the first write wins when payloads differ
   - how to scale: split rockets across several writers by channel, move to Postgres, add snapshots saved to disk, and separate the ingest and query services
   - a summary of the AI workflow, linking to the dev diary
 - Update `CLAUDE.md` with the real commands and architecture.
 
 **Verify**
-- [ ] A fresh clone can be built, tested and run against `rockets.exe` by following only the README.
+- [x] A fresh clone can be built, tested and run against `rockets.exe` by following only the README. Checked in a fresh `git clone` in a temporary folder:
+  - `dotnet test`: 308 passed
+  - the quick start (`dotnet run`, the test program with its defaults, `curl`): 100,000 messages in 42.2 s, the database where the README says it is
+  - `pwsh ./scripts/e2e.ps1`: PASS
 
 ### Phase 6 (stretch): Postgres store
 

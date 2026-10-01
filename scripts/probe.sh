@@ -21,6 +21,8 @@ case "$(uname -s)-$(uname -m)" in
   *)                    rockets="$root/vendor/rockets/linux_amd64/rockets" ;;
 esac
 
+if curl -s -o /dev/null http://localhost:8088/; then echo "Something is already listening on port 8088. Stop it first." >&2; exit 1; fi
+
 out="$root/artifacts/capture"; mkdir -p "$out"
 capture="$out/$name.ndjson"; rm -f "$capture"
 
@@ -31,7 +33,8 @@ for _ in $(seq 1 20); do curl -s -o /dev/null http://localhost:8088/ && break; s
 start=$(date +%s)
 timeout "$limit" "$rockets" launch "http://localhost:8088/messages" "${rockets_args[@]}" > "$out/$name.rockets.log" 2>&1
 echo "[$name] rockets exit=$? after $(( $(date +%s) - start ))s"
-kill "$server" 2>/dev/null; wait "$server" 2>/dev/null
+# A forced kill: from Git Bash, a plain kill can leave the native dotnet process running and holding the port.
+kill -9 "$server" 2>/dev/null; wait "$server" 2>/dev/null
 
 echo "rockets log, excluding successful sends:"
 grep -v "Message sent" "$out/$name.rockets.log" | sed -E 's/^[0-9\/: ]+//' | cut -c1-110 | sort | uniq -c | sort -rn | head -6

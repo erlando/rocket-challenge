@@ -569,3 +569,83 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed Phase 4 on `main`: the oracle, the e2e script, the expected-state files, the commit counter, the doc updates, and diary entries 26–27.
+
+---
+
+## 2026-10-01 · 28. Phase 5: documentation
+
+**Prompt**
+> start phase 5
+
+**Actions**
+- Fetched real API responses for the README examples. The `/health` counters showed 100,000 messages stored since startup, which shouldn't happen right after a restart. They revealed a **stale service** still running from the Phase 4 NORMAL measurement: Git Bash's `kill` hadn't stopped the native `dotnet` process, so the new service couldn't bind port 8088 and exited quietly.
+  - Stopped it with `Stop-Process -Force`.
+  - Confirmed the Phase 4 results weren't affected (they ran earlier, and `e2e.ps1` refuses a busy port).
+  - Changed `scripts/probe.sh` to check the port first and use `kill -9`.
+  - The example responses are genuine output from that service (a 100k run), so they were kept.
+- Wrote `README.md`:
+  - a summary table and the quick start
+  - the tests and verification commands
+  - the API, with real responses
+  - how it works, with a diagram, the ordering model, durability and acknowledgements, and concurrency
+  - a decision table, with alternatives and who decided
+  - the facts measured in Phase 0, and the verification layers with the e2e results
+  - known limitations, scaling, and the project layout
+  - how AI was used: the workflow, the developer's decisions, what was delegated, how quality was kept, and where the AI went wrong
+- Corrected one README claim during review: the process that held the port came from an ad-hoc command, not from a repo script.
+- **Verified the README by following it** in a fresh `git clone` in a temporary folder (with the uncommitted README copied in):
+  - `dotnet test`: 308 passed
+  - the quick start (`dotnet run -c Release`, `rockets.exe` with its defaults, `curl`): exit 0 in 42.2 s, 100,000 messages stored, the database where the README says it is, and nothing left listening afterwards
+  - `pwsh ./scripts/e2e.ps1`: PASS
+  - The clone was deleted afterwards.
+- Ticked Phase 5 in the plan, added the Phase 5 section to the decision log, and updated `CLAUDE.md` (the phase status, and keeping the README in step).
+
+**Open:** Phase 6 (the Postgres store) is optional; the plan does it only if more than 1 h of the budget remains. That's the developer's call. Not committed yet, so the phase can be reviewed first.
+
+---
+
+## 2026-10-01 · 29. The README diagram as a Mermaid sequence diagram
+
+**Prompt**
+> I would like the "diagram" under "How it works" in README.md to be a mermaid sequence diagram
+
+**Actions**
+- Replaced the ASCII diagram in "How it works" with a Mermaid `sequenceDiagram`, which GitHub renders natively. Its participants are the test program, `POST /messages`, the bounded queue, the single writer loop, the SQLite message log, `RocketRegistry` and a dashboard. It shows:
+  - enqueueing, including the 503 branch when the queue stays full or the service is shutting down
+  - the per-message apply loop, with the rejection note
+  - the single commit transaction
+  - success (publish, then complete, then 204) against a storage error (reload, then 503)
+  - the lock-free read path
+
+**Verification:** rendered the diagram with the Mermaid CLI (`npx @mermaid-js/mermaid-cli`, a one-off into `artifacts/mermaid/`, nothing added to the repo). It rendered without errors, and the image was inspected. Not committed yet, together with the rest of Phase 5.
+
+---
+
+## 2026-10-01 · 30. A component flowchart in the README
+
+**Prompt**
+> please add a flowchart above the sequence diagram showing how the individual components of the solution relate to each other
+
+**Actions**
+- Added a Mermaid `flowchart TB` above the sequence diagram in "How it works":
+  - one box per project (Api, Application, Domain, Storage.Sqlite, Verification tooling), each holding its main components
+  - the external clients (the test program, a dashboard)
+  - the SQLite file
+  - the planned Postgres store
+  - solid arrows for calls and data flow, and dashed lines for the storage interface's implementations and the verification tooling
+- Added a sentence before each diagram saying what it shows.
+- **First render:** the verification tooling and the SQLite store ended up at the top, because Mermaid places an arrow's source above its target. Reversed those arrows ("implemented by", "checked by", "read by").
+- **Second render:** the flow reads top to bottom (clients, then Api, Application, then Domain and storage, then the database, with verification underneath).
+
+**Verification:** both renders were made with the Mermaid CLI into `artifacts/mermaid/`, with nothing added to the repo, and the images were inspected. Not committed yet, together with the rest of Phase 5.
+
+---
+
+## 2026-10-01 · 31. Commit Phase 5
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed Phase 5 on `main`: `README.md` (with the component flowchart and the sequence diagram), the `scripts/probe.sh` port check and forced kill, the doc updates, and diary entries 28–31.
+- Still open: whether to do Phase 6 (the Postgres store).

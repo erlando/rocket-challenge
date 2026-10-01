@@ -178,3 +178,17 @@ The crash run shows at-least-once delivery handled correctly:
 - It picks the `rockets` binary for the OS and architecture.
 - It writes `artifacts/e2e/results.json`, because the console table cuts off columns.
 - It fails if the oracle fails, if the test program exits non-zero, or if any retry was dropped.
+
+## Phase 5: Documentation
+
+**The README summarises; the decision log is the detail.** The README covers the quick start, the API with real responses, how the service works, a decision table, verification, limitations, scaling and how AI was used. It links to this log for the reasoning and measurements of each phase rather than copying them, so there is only one detailed copy of each.
+
+**The README was checked by following it.** In a fresh `git clone` in a temporary folder:
+- `dotnet test` passed all 308 tests.
+- The quick start (`dotnet run`, the test program with its defaults, then `curl`) stored 100,000 messages in 42.2 s, with the database where the README says it is.
+- `pwsh ./scripts/e2e.ps1` passed.
+
+**A stale process found while writing the README.** The example responses were first fetched from a service left running since the Phase 4 NORMAL measurement. In Git Bash, a plain `kill` hadn't stopped the native `dotnet` process. The new service then couldn't bind port 8088 and exited quietly.
+- The odd `/health` counters gave it away.
+- The Phase 4 results weren't affected: they ran earlier, and `e2e.ps1` refuses a busy port and force-kills its processes.
+- `scripts/probe.sh` now does the same: it checks the port before starting and uses `kill -9`.
