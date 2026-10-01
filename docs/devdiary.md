@@ -194,3 +194,64 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed `docs/implementation-plan.md` and diary entries 6–12 on `main`.
+
+---
+
+## 2026-10-01 · 13. Add .gitattributes and get an independent review of the plan
+
+**Prompt**
+> make the change to .gitattributes. Then let a second agent review the implementation plan. Report the findings.
+
+**Actions**
+- Added `.gitattributes` (`* text=auto eol=lf`). `git add --renormalize .` changed nothing, because the index already stored LF. Not committed.
+- Started a separate reviewer agent with fresh context and read-only instructions. It read `CHALLENGE.md`, `implementation-plan.md` and this diary, and it ran `rockets.exe launch --help` (not `launch` itself).
+
+**Review findings (the plan is not changed yet; that waits for the developer's decisions)**
+- **High**
+  - **H1:** The oracle folds the service's own `messages` table, so it can't detect an acknowledged message that was lost. Ground truth must come from outside the service: a deterministic capture with seed 444, or a logging proxy.
+  - **H2:** A deterministic failure, such as one poison message, makes every request in its batch return 503 forever, through endless redelivery. Per-message validation and apply errors must be separated from store errors.
+- **Medium**
+  - **M1:** At concurrency 3 a batch holds at most 3 messages, so group commit helps little. The benchmark should use batch sizes 1, 3 and 20, and the choice between `FULL` and `NORMAL` should be made from those numbers.
+  - **M2:** A commit that fails in an ambiguous way (it may have succeeded) can leave memory out of step with the database. After a store error, reload the affected rockets or stop the service.
+  - **M3:** Nobody knows whether `rockets.exe` resends after a refused connection or a 5xx. Probe this in Phase 0, and use a hard kill in the crash test.
+  - **M4:** Persisted checkpoints are derived state, so a projection bug would be saved to disk. Either replay the whole log at startup, or add a rebuild option and a test that recovery matches a full fold of the log.
+  - **M5:** The schedule is optimistic: Phase 3 is probably about 2h. Write the decision log during each phase, and drop Phase 6 unless time remains.
+- **Low:**
+  - L1: the same message number arriving with a different payload
+  - L2: the fallback if 4xx responses are resent, and semantic validation
+  - L3: what `updatedAt` means
+  - L4: recovering rockets that have no checkpoint yet
+  - L5: client disconnects must not cancel writes already in flight
+  - L6: the e2e script assumes Windows
+  - L7: the number of projects
+
+**Assistant's assessment**
+- All the High and Medium findings are valid.
+- M1 corrects an overstated claim from entry 7. Group commit gains at most about 3× at the default concurrency. The single writer is still justified because it keeps locks out of the domain code, but not mainly for throughput.
+
+---
+
+## 2026-10-01 · 14. Revise the plan from the review and commit
+
+**Prompt**
+> yes, update the plan and commit
+
+**Decisions** (the developer accepted the assistant's recommendations)
+- **H1:** The oracle checks against ground truth from outside the service. First choice: the deduplicated capture from a deterministic seed-444 run, checked in Phase 0. Fallback: a logging proxy that records every message that got a 2xx.
+- **M4:** Checkpoints are no longer saved to disk. The message log is the only stored state, and startup replays it in full. Snapshots saved to disk are documented as a way to scale, not built.
+
+**Actions**: rewrote `docs/implementation-plan.md` as revision 2.
+- **H2:** Problems with a single message (malformed, invalid, or failing to apply) are rejected on their own and recorded in `rejected_messages`. Only storage errors fail a batch.
+- **M1:** Group commit is now justified by keeping locks out of the domain code, not by throughput. The writer drains whatever is queued. The benchmark uses batch sizes 1, 3 and 20, and the `synchronous` setting is chosen from the results.
+- **M2:** After a storage error, the affected rockets are reloaded from the store. A test uses a fake store that commits and then throws.
+- **M3:** Phase 0 now probes the test program's behaviour after a 4xx, a 5xx, a timeout and a refused connection, and checks whether runs are deterministic. The crash test uses a hard kill, with an in-process fallback.
+- **M5:** Re-estimated the schedule (Phase 3 at 2h). The decision log is written during each phase. Phase 6 is dropped unless more than 1h remains.
+- **Low findings:**
+  - L1: the first write wins, and a payload-hash mismatch is counted
+  - L2: whether rejected messages get 4xx or 2xx is decided from Phase 0
+  - L3: `updatedAt` means `messageTime`
+  - L4: no longer applies, since there are no saved checkpoints
+  - L5: `RequestAborted` never cancels a write that is already being processed
+  - L6: the e2e script requires `pwsh` and picks the binary by OS and architecture
+  - L7: not acted on, because the separate storage project keeps all SQL in one place
+- Committed `.gitattributes`, the revised plan and diary entries 13–14 on `main`.

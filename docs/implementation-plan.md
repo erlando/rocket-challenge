@@ -8,17 +8,25 @@ This plan covers the Lunar backend engineer challenge described in [CHALLENGE.md
 
 It is split into progressive phases, and each phase ends with targets that can be verified.
 
+**Revision 2.** This version was revised after an independent review of the plan by a second AI agent; the findings are in [devdiary.md](devdiary.md), entries 13 and 14. The main changes:
+- The end-to-end oracle now compares against ground truth from outside the service.
+- An error in one message no longer fails its whole batch.
+- Checkpoints are no longer saved to disk; the service replays the message log at startup instead.
+- After a storage error, the service reloads the affected rockets from the database.
+- Phase 0 now probes how the test program behaves on errors.
+- The schedule has been re-estimated.
+
 ## 1. Goals and assessment mapping
 
 | Assessment target | Where it is addressed |
 |---|---|
-| Design choices and trade-offs | The decision log in the README (Phase 5) and the design decisions in this document |
+| Design choices and trade-offs | The decision log, written during each phase and finished in the README (Phase 5); the design decisions in this document |
 | Data structures | The immutable `RocketLedger`, which holds a checkpoint and the pending messages after it (Phase 1) |
 | Concurrency | A single writer that batches commits, with lock-free reads from snapshots (Phase 3) |
 | Persistence | The SQLite message log behind a storage interface (Phase 2); Postgres as a stretch goal (Phase 6) |
-| Error handling | The error policy (§2.6), the storage-failure path (Phase 3), and the crash test (Phase 4) |
-| Verification | Unit, contract and API tests in every phase; the end-to-end oracle and crash test (Phase 4) |
-| AI use | [devdiary.md](devdiary.md), plus review and approval of each phase before it is committed (§4) |
+| Error handling | The error policy (§2.6): errors in one message are kept separate from storage errors; the service reconciles after a commit that failed in an ambiguous way (Phase 3); the crash test (Phase 4) |
+| Verification | Unit, contract and API tests in every phase; an end-to-end oracle checked against ground truth captured outside the service; the crash test (Phase 4) |
+| AI use | [devdiary.md](devdiary.md); review and approval of each phase before it is committed; an independent agent's review of this plan (§4) |
 
 ### Load profile
 
@@ -28,7 +36,7 @@ The grading run uses the defaults of `rockets launch`:
 - `--seed 444`
 - no message delay
 
-So the service must handle about 100k messages, sent three at a time as fast as it answers, with redelivery on any non-2xx response.
+So the service must handle about 100k messages, sent three at a time as fast as it answers, with redelivery on any non-2xx response. At most three requests are in flight at once, so a batch of commits never holds more than three messages during the grading run.
 
 ## 2. Architecture
 
@@ -38,32 +46,37 @@ These were agreed during planning. The reasoning is in the dev diary.
 
 | Decision | Choice | Main alternatives considered |
 |---|---|---|
-| Persistence | **SQLite** message log behind `IMessageStore`, so it can be swapped for Postgres | Postgres (production-like, but reviewers need Docker to run it); in-memory (loses messages that were already acknowledged) |
+| Persistence | **SQLite**, as an append-only message log behind `IMessageStore`, so it can be swapped for Postgres. The log is the only stored state; rocket state is derived from it. | Postgres (production-like, but reviewers need Docker to run it); in-memory (loses messages that were already acknowledged) |
 | Ordering | **Checkpoint plus replay**: newest data takes priority over strict correctness | Buffer until gaps fill (state lags behind); fold all messages from scratch on every change (cost O(n)) |
-| Write concurrency | **Single writer loop with group commit** | A lock per rocket (one disk sync per message, and SQLite serialises writes anyway); the database doing the ordering (every read hits the DB) |
+| Write concurrency | **Single writer loop with group commit.** The main reason is that only one thread changes state, so the domain code needs no locks. Batching saves at most about as many disk syncs as there are concurrent requests (3× under the default load). | A lock per rocket (one disk sync per message, and SQLite serialises writes anyway); the database doing the ordering (every read hits the DB) |
 | Topology | **Single ASP.NET Core service** with internal layers | Separate ingest and query services (more moving parts within the 6-hour budget) |
+| Recovery | **Replay the full log at startup**; checkpoints live only in memory | Saving checkpoints to disk (faster startup at large scale, but a bug in applying messages would be saved too, and survive the fix) |
 
 ### 2.2 Overview
 
 ```
-POST /messages ─▶ validate/parse ─▶ bounded Channel<PendingWrite> ─▶ single writer loop
-                                                                      ├─ apply batch to immutable ledgers (working copies)
-                                                                      ├─ IMessageStore.CommitAsync(new messages + changed checkpoints)
-                                                                      │     one transaction, one fsync per batch
-                                                                      ├─ success: publish snapshots, complete requests → 204
-                                                                      └─ failure: discard working copies, fail requests → 503
-                                                                                  (redelivered; safe because writes are idempotent)
+POST /messages ─▶ parse + validate ─(invalid)─▶ rejected (see §2.6)
+                     │
+                     ▼
+            bounded Channel<PendingWrite> ─▶ single writer loop (drains whatever is queued; never waits to fill a batch)
+                                              ├─ per message: apply to a working copy of its ledger
+                                              │    an apply error rejects only that message (see §2.6)
+                                              ├─ IMessageStore.CommitAsync(new messages)   one transaction, one fsync
+                                              ├─ success: publish snapshots, complete requests → 204
+                                              └─ store error: complete requests → 503 (redelivered; idempotent),
+                                                   then reload the affected rockets from the store,
+                                                   because the commit may in fact have succeeded
 
 GET /rockets[/{channel}] ─▶ ConcurrentDictionary<channel, RocketSnapshot>   (immutable, lock-free)
 ```
 
-Only the writer loop changes rocket state, so the domain code has no locks. Snapshots are published only after their commit succeeds. That way a reader never sees state that might be rolled back, and a request gets 2xx only once its message is stored.
+Only the writer loop changes rocket state, so the domain code has no locks. Snapshots are published only after their commit succeeds. That way a reader never sees state that might be rolled back, and a request gets 2xx only once its message is stored. Only a storage error fails a whole batch. A problem with one message affects only that message.
 
 ### 2.3 Projects (.NET 10)
 
 | Project | Responsibility |
 |---|---|
-| `src/Rockets.Domain` | Pure code with no IO: message types, polymorphic JSON parsing, `RocketState` and the function that applies a message to it, and `RocketLedger` |
+| `src/Rockets.Domain` | Pure code with no IO: message types, polymorphic JSON parsing, validation, `RocketState` and the function that applies a message to it, and `RocketLedger` |
 | `src/Rockets.Application` | The writer loop, the `IMessageStore` interface, the snapshot registry, and recovery at startup |
 | `src/Rockets.Storage.Sqlite` | The SQLite store (Microsoft.Data.Sqlite and Dapper). **All SQL lives here.** |
 | `src/Rockets.Api` | Minimal-API endpoints, the composition root, and configuration (port 8088, storage provider, SQLite pragmas) |
@@ -85,14 +98,17 @@ Each rocket is represented by an immutable `RocketLedger`:
 `Apply(message)` returns a new ledger and an outcome: `Duplicate`, `Accepted` (added to pending), or `Advanced` (the checkpoint moved forward).
 - A message is a duplicate if its number is ≤ N or already pending.
 - After a message is added, the checkpoint keeps moving forward while message N+1 is pending.
-- Each message costs O(number of pending messages), which is bounded by how far out of order messages arrive. State is never rebuilt from the start.
+- Each message costs O(number of pending messages), which is bounded by how far out of order messages arrive. State is never rebuilt from the start, except when the log is replayed at startup.
+
+**Same number, different payload.** The first write wins. Each stored message carries a hash of its payload. If a duplicate's hash differs from the stored one, the duplicate is still acknowledged, but the mismatch is logged and counted. The ledger checks this for pending messages, and the store checks it when an insert hits an existing row.
 
 **Rules for applying messages:**
 - `RocketLaunched` sets the type, the launch speed and the mission (counted as the mission at message #1).
-- `RocketSpeedIncreased` and `RocketSpeedDecreased` add or subtract `by`.
+- `RocketSpeedIncreased` and `RocketSpeedDecreased` add or subtract `by`, using checked arithmetic so an overflow is an error, not a wrong number.
 - `RocketMissionChanged` sets the mission.
 - `RocketExploded` sets the status to exploded and records the reason. The status is permanent, while other fields keep updating. This assumption is checked against real traffic in Phase 0.
 - Until launch data arrives, the status is `AwaitingLaunch`. This stops a dashboard from showing a speed made of changes alone as if it were real.
+- `updatedAt` is the `messageTime` of the highest-numbered message applied to the current state. It is deterministic, unlike the time a message was received. `launchedAt` is the `messageTime` of `RocketLaunched`.
 
 **Design note.** With today's message types, applying messages in any order gives the same result:
 - speed changes add up
@@ -105,27 +121,31 @@ So the current state could be updated in O(1) per message with no replay. Checkp
 
 The **storage interface** (`IMessageStore`) is the seam for swapping in Postgres:
 - `InitializeAsync()`: create the schema if it doesn't exist.
-- `LoadRecoveryStateAsync()`: return every checkpoint, plus the messages above each checkpoint.
-- `CommitAsync(newMessages, changedCheckpoints)`: write both atomically, in one transaction.
+- `ReadAllAsync()`: stream every stored message, used to replay the log at startup.
+- `ReadChannelAsync(channel)`: read one rocket's messages, used to reload it after a storage error.
+- `CommitAsync(newMessages)`: write a batch atomically, in one transaction. It returns the messages that were already stored, together with any payload-hash mismatches.
+- `RejectAsync(rejected)`: record a message that was rejected (see §2.6).
 
 **Schema:**
-- `messages(channel, message_number, message_type, message_time, payload_json, received_at)`, with primary key `(channel, message_number)`.
-  - This append-only log is the source of truth.
+- `messages(channel, message_number, message_type, message_time, payload_json, payload_hash, received_at)`, with primary key `(channel, message_number)`.
+  - This append-only log is the only stored state.
   - Inserts use `ON CONFLICT DO NOTHING`, a backstop behind the ledger's own duplicate check.
-- `rocket_checkpoints(channel PK, checkpoint_number, type, mission, speed, status, explosion_reason, launched_at, updated_at)`.
-  - Checkpoints are written in the same transaction as the messages.
-  - Recovery therefore only replays messages after each checkpoint, so startup time depends on how many messages are pending, not the total.
+- `rejected_messages(id, received_at, reason, body)`, for messages that fail validation or applying.
+
+**Recovery.** At startup the service replays the full log through the same `RocketLedger` code, then starts accepting requests.
+- Phase 2 measures how long replaying 100k messages takes.
+- If startup ever became too slow, the next step would be snapshots saved to disk, plus a "rebuild from the log" option and a test that a snapshot equals a full replay. That trade-off is documented rather than built.
 
 **SQLite pragmas:**
 - `journal_mode=WAL`, so reads don't block the writer.
-- `synchronous=FULL` by default, so a commit is safe even across a power cut. This can be set to `NORMAL`, which is safe across a process crash only. Phase 2 measures the throughput cost of each.
+- `synchronous=FULL` or `NORMAL`, chosen in Phase 2 from measured numbers. `FULL` makes a commit safe even across a power cut; `NORMAL` makes it safe across a process crash only.
 - `busy_timeout`.
 
 ### 2.6 API and error policy
 
 | Endpoint | Behaviour |
 |---|---|
-| `POST /messages` | Returns 204 once the message is stored, and 204 for a duplicate too |
+| `POST /messages` | Returns 204 once the message is stored, and 204 for a duplicate too. Rejected messages: see below. |
 | `GET /rockets/{channel}` | Returns the rocket's state, or 404 if the rocket is unknown |
 | `GET /rockets?sortBy=channel\|type\|mission\|speed\|status\|updatedAt&order=asc\|desc` | Lists all rockets, sorted; 400 for an invalid sort |
 | `GET /health` | Liveness check |
@@ -137,12 +157,21 @@ Besides its state, each rocket in a response includes:
 
 Together these let a dashboard show whether a rocket's data is complete.
 
+A message can fail in two ways, and they are handled differently:
+- **Problems with a single message** are caught per message and never fail its batch. They come in three kinds:
+  - a malformed envelope: invalid JSON, or a missing channel or number
+  - semantic validation: a negative or missing `by`, or missing launch fields
+  - an error while applying it: an overflow, or a bug
+- **Storage errors** fail the batch, and every message in it is resent.
+
 | Situation | Response |
 |---|---|
-| Malformed envelope (invalid JSON, missing channel or number) | 400, and the message is logged. Phase 0 checks whether the test program keeps resending after a 4xx. |
+| A problem with a single message | Recorded in `rejected_messages` and logged. The response is 400 if Phase 0 shows that the test program doesn't resend after a 4xx. If it does resend, the response is 2xx, so a message that can never succeed doesn't loop forever. |
 | Unknown `messageType` | Stored and acknowledged with 2xx, but not applied. It is counted and logged, so new message types don't break the service. |
-| Storage failure | 503. The message is resent, which is safe because writes are idempotent. |
+| Same number, different payload | 2xx, and the first write wins. The mismatch is logged and counted (see §2.4). |
+| Storage error | 503 for the batch, then the affected rockets are reloaded from the store. A redelivered message is safe because writes are idempotent. |
 | Write queue full | The request waits with a timeout, then gets 503. |
+| Client disconnects | `RequestAborted` cancels only the wait to get into the queue. It never cancels a write that is already being processed. |
 | Shutdown | The service stops accepting messages and drains the queue before exiting. |
 
 ## 3. Phases
@@ -150,12 +179,13 @@ Together these let a dashboard show whether a rocket's data is complete.
 Every phase ends with:
 - all tests green
 - the developer reviewing the diff
+- a paragraph added to the decision log, for the README
 - an entry in the dev diary
 - a commit on `main`
 
-Hour estimates are measured against the 6-hour budget.
+Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 is not included.
 
-### Phase 0: Skeleton and observing real traffic (~0.5h)
+### Phase 0: Skeleton and probing the test program (~0.75h)
 
 **Work**
 - Create the solution with the project layout from §2.3.
@@ -166,55 +196,72 @@ Hour estimates are measured against the 6-hour budget.
   - the largest reorder distance
   - whether messages arrive after `RocketExploded`
   - how many rockets there are
-- Return a 4xx once, to see whether the test program resends after it.
+- **Determinism check:** capture two runs with `--seed 444` and compare the deduplicated sets of messages. If they match, the deduplicated capture is the ground truth for the oracle in Phase 4.
+- **Probing how the test program behaves on errors.** Use a small `--max-messages` and, for each case below, record whether it resends, retries forever, or gives up:
+  - a 4xx response
+  - a 5xx response
+  - a slow response or timeout
+  - a refused connection, with the service hard-killed mid-run
 
 **Verify**
 - [ ] `dotnet build` and `dotnet test` pass.
 - [ ] `rockets.exe launch "http://localhost:8088/messages"` with default flags completes with no errors.
-- [ ] The traffic findings are recorded in the dev diary, and the assumptions in §2.4 and §2.6 are confirmed or adjusted.
+- [ ] The traffic findings, the determinism result and the error behaviour are recorded in the dev diary.
+- [ ] The open choices in §2.4 and §2.6 are settled from these findings: the explosion rule, the 4xx-or-2xx response for rejected messages, and the source of ground truth.
 
 ### Phase 1: Domain model and ordering (~1h)
 
 **Work**
-- Message types and polymorphic JSON parsing.
+- Message types, polymorphic JSON parsing and validation.
 - `RocketState` and the function that applies a message to it.
-- `RocketLedger`: checkpoint advance, the pending buffer, duplicate detection, and the current state.
+- `RocketLedger`: checkpoint advance, the pending buffer, duplicate detection with the payload-hash check, and the current state.
 
 **Verify**
-- [ ] Unit tests for each message type, a message arriving before launch, and the explosion rule.
+- [ ] Unit tests for each message type, a message arriving before launch, the explosion rule, overflow, and validation failures.
 - [ ] A property-style test that takes a generated message sequence, shuffles it with a seeded random generator, and injects duplicates. It checks that:
   - the final state equals applying the messages in order
   - the checkpoint never moves past the first gap
   - after every step, the current state equals the checkpoint plus pending messages applied in order, skipping gaps
 
-### Phase 2: Storage and the SQLite store (~1h)
+### Phase 2: Storage and the SQLite store (~0.75h)
 
 **Work**
 - The `IMessageStore` interface.
-- The SQLite implementation: schema creation, pragmas, an atomic commit, and the recovery query.
+- The SQLite implementation: schema creation, pragmas, an atomic commit, payload-hash conflict detection, reading the log, and rejected messages.
 
 **Verify**
 - [ ] Contract tests on a temporary-file database:
-  - a commit writes both tables atomically
-  - inserting a duplicate does nothing
-  - recovery returns only the messages above each checkpoint
+  - a batch commits atomically
+  - inserting a duplicate does nothing, and returns the duplicate along with any payload-hash mismatch
+  - `ReadAllAsync` and `ReadChannelAsync` return exactly what was committed
   - a failed transaction leaves nothing behind
-- [ ] A micro-benchmark that records commits per second for `synchronous=FULL` and `NORMAL`, at batch sizes 1 and 64. The numbers are recorded and confirm (or challenge) the group-commit decision.
+- [ ] One benchmark run that measures:
+  - commits per second for `FULL` and `NORMAL` at batch sizes 1, 3 (the default load) and 20 (the stress run)
+  - how long replaying 100k messages takes
+- [ ] The `synchronous` setting is chosen from those numbers, and the duration of the default grading run is estimated.
 
-### Phase 3: Ingestion pipeline and API (~1.25h)
+### Phase 3: Ingestion pipeline and API (~2h)
 
 **Work**
 - The bounded `Channel<PendingWrite>`.
-- The writer loop with group commit: apply each batch to working copies, commit it, then publish snapshots and complete the waiting requests through `TaskCompletionSource`.
+- The writer loop. For each pass it:
+  - drains whatever is queued
+  - applies each message to a working copy of its ledger, rejecting a failing message on its own
+  - commits the batch
+  - publishes the snapshots and completes the waiting requests through `TaskCompletionSource`
+- After a storage error, the writer reloads the affected rockets through `ReadChannelAsync`.
 - The snapshot registry and the endpoints from §2.6, including sorting.
-- Recovery at startup, finished before Kestrel accepts requests.
-- Draining the queue on graceful shutdown.
+- Recovery at startup: the full log is replayed before Kestrel accepts requests.
+- Draining the queue on graceful shutdown, and the cancellation rule from §2.6.
 
 **Verify**
 - [ ] Application tests:
   - concurrent posts to the same rocket
   - duplicates within one batch
+  - **a bad message in a batch with good ones**: only the bad message is rejected, and the good ones are stored and acknowledged
   - a store failure gives 503 and leaves the snapshots unchanged
+  - **a fake store that commits and then throws**: after the reload, memory matches the store
+  - a client that disconnects mid-write doesn't stop the message from being stored
 - [ ] API tests with `WebApplicationFactory`: status codes, sorting, and the 404 and 400 cases.
 - [ ] A restart test: post messages, dispose the host, start a new host on the same database, and get the same state.
 
@@ -222,31 +269,35 @@ Hour estimates are measured against the 6-hour budget.
 
 **Work**
 - A `scripts/e2e.ps1` script that:
+  - requires `pwsh`, the cross-platform PowerShell
+  - picks the `rockets` binary that matches the OS and architecture
   - starts the service on a fresh database
   - runs `rockets.exe` with the defaults (with a quick `--max-messages` variant for fast runs)
   - runs the oracle
-- The **oracle** is a deliberately separate, simple implementation, so it doesn't share bugs with the main code. It reads the full `messages` log, sorts each rocket's messages, folds them from scratch, and asserts that:
-  - its result equals `GET /rockets` for every rocket
-  - every rocket has all messages from 1 to its last
-  - `missingMessageCount == 0`
-  - each checkpoint equals `lastMessageNumber`
-- A **crash test**: kill the service mid-run, restart it, and let `rockets.exe` resend. The oracle must still pass, which shows that no acknowledged message was lost.
-- A **stress run** at `--concurrency-level 20`.
+- **The oracle checks against ground truth from outside the service.**
+  - The expected messages come from the deterministic capture from Phase 0. If runs turned out not to be deterministic, they come instead from a thin logging proxy in front of the service, which records every message that got a 2xx.
+  - The oracle is a deliberately separate, simple implementation: it deduplicates the expected messages, sorts each rocket's messages, and folds them from scratch.
+  - It asserts that its result equals `GET /rockets` for every rocket, and that every expected message is in the service's log.
+  - It asserts that every rocket has `missingMessageCount == 0` and a checkpoint equal to `lastMessageNumber`.
+- **A crash test:** hard-kill the service mid-run (`Stop-Process -Force`), restart it, and let `rockets.exe` resend.
+  - The oracle must still pass. That shows no acknowledged message was lost, because the expected messages come from outside the service.
+  - If Phase 0 shows that `rockets.exe` gives up on a refused connection, fall back to an in-process test instead. It kills a child-process host while posting from its own deterministic generator.
+- **A stress run** at `--concurrency-level 20`.
 
 **Verify**
 - [ ] The e2e script exits 0 for the default run, the crash test and the stress run.
 - [ ] Throughput and duration for the default run are recorded for the README.
 
-### Phase 5: Documentation (~0.75h)
+### Phase 5: Documentation (~0.5h)
 
 **Work**
 - `README.md`:
   - how to run the service, the tests and the e2e script
   - the API, with examples
   - an architecture diagram
-  - a decision log covering the decisions in §2.1, including the alternatives and trade-offs
-  - known limitations: a gap that never fills stops the checkpoint and grows pending; the service runs as a single process; the explosion rule is an assumption
-  - how to scale: split rockets across several writers by channel, move to Postgres, and separate the ingest and query services
+  - the decision log, assembled from the paragraphs written during each phase, covering §2.1 with its alternatives and trade-offs
+  - known limitations: a gap that never fills stops the checkpoint and grows pending; the service runs as a single process; the explosion rule is an assumption; the first write wins when payloads differ
+  - how to scale: split rockets across several writers by channel, move to Postgres, add snapshots saved to disk, and separate the ingest and query services
   - a summary of the AI workflow, linking to the dev diary
 - Update `CLAUDE.md` with the real commands and architecture.
 
@@ -254,6 +305,8 @@ Hour estimates are measured against the 6-hour budget.
 - [ ] A fresh clone can be built, tested and run against `rockets.exe` by following only the README.
 
 ### Phase 6 (stretch): Postgres store
+
+This phase is **dropped unless more than 1h of the budget remains** after Phase 5. Without it, the case for swapping in Postgres rests on the `IMessageStore` interface and its contract-test suite.
 
 **Work**
 - `Rockets.Storage.Postgres` behind the same `IMessageStore`, selected through the `Storage:Provider` setting.
@@ -266,5 +319,6 @@ Hour estimates are measured against the 6-hour budget.
 
 - Work happens one phase at a time. The developer reviews and approves each phase before it is committed.
 - The developer owns design decisions. The assistant raises them as questions instead of deciding silently, and every prompt is recorded in [devdiary.md](devdiary.md) with its outcome.
+- A second AI agent, given fresh context and read-only access, reviewed this plan before any code was written. Its findings, and what was decided about each, are in the dev diary (entries 13 and 14). The same independent review can be repeated at the end of each phase.
 - The domain and ordering logic are covered by tests before the code that makes them pass is written.
-- The oracle in Phase 4 is a separate, simple implementation, so the end-to-end check doesn't rely on the code it verifies.
+- The oracle in Phase 4 is a separate, simple implementation that checks against ground truth captured outside the service, so the end-to-end check doesn't rely on the code it verifies.
