@@ -85,3 +85,52 @@ These are the decisions made during the implementation, one section per phase. T
 **What the tests cover.** A contract-test base class defines what every store must do. A Postgres store will subclass it the same way the SQLite tests do. A mutation check confirmed the contract tests catch three planted bugs: last write wins, a content change never flagged, and a failing insert skipped with the rest of the batch committed.
 
 **Test setup.** A shared `tests/Directory.Build.props` now holds the xUnit v3 setup. It also turns off analyzer rule xUnit1051, which wants a cancellation token in every async call; these tests are short-lived and local, so the token would only add noise.
+
+## Phase 3: Ingestion pipeline and API
+
+**The API shape was the developer's choice.**
+- A rocket has its state at the top level and a nested `sequence` object (`lastMessageNumber`, `checkpointMessageNumber`, `pendingMessageCount`, `missingMessageCount`, `isComplete`). This keeps the bookkeeping out of the way of the state a dashboard actually shows.
+- The list is `{ "count": n, "rockets": [...] }`, without echoing the sort back.
+  - Why an envelope: fields such as paging or an `asOf` timestamp can be added later without breaking clients. That suits the brief's dashboard consumer and its question about future requirements.
+  - What a bare array would have offered: the simplest shape, with paging possible through headers later.
+- There is no filtering yet.
+
+**Sorting rules.** `sortBy` and `order` are case-insensitive, and the defaults are `channel` and `asc`.
+- A rocket with no value for the field sorts last in either order. For example, a rocket has no type until its launch message arrives, and such rockets shouldn't jump to the top when the order is reversed.
+- Ties are broken by channel, so the order is always the same.
+- Strings compare ordinally, so the result doesn't depend on the server's culture.
+- `status` sorts in lifecycle order: awaiting launch, launched, exploded.
+- An unknown value gets 400, and the message lists the valid values.
+
+**The writer loop.** It reads whatever is queued, up to 256 messages, and never waits for a batch to fill up.
+- Each message is applied to a working copy of its ledger. Because ledgers are immutable, a working copy is just a reference.
+- The batch is committed in one transaction. Only after the commit succeeds are the snapshots published and the requests completed. A reader therefore never sees uncommitted state, and a 2xx always means the message is stored.
+- Completions use `TaskCreationOptions.RunContinuationsAsynchronously`, so request code never runs on the writer's thread.
+
+**Errors are kept to the request that caused them.**
+- An invalid body or a message that can't be applied (such as a speed overflow) is recorded in `rejected_messages` and answered with 2xx. The rest of its batch continues.
+  - Consequence: a message rejected while applying leaves a permanent gap, because it is never resent. That is accepted: it can only happen with absurd data, and it shows up as `missingMessageCount`.
+  - Limitation: if a gap-filling message makes an earlier pending message overflow, the gap-filler is the one rejected.
+- A storage error fails the whole batch with 503, so it is resent. Before anyone gets an answer, the affected rockets are reloaded from the store, because the commit may have succeeded before the error surfaced.
+  - If the reload fails too, the rocket is marked stale. It is reloaded before every later batch, and its new messages get 503 until that works.
+  - Applying a message to state that may be out of date would silently corrupt the rocket, which is worse than a retry.
+- An unexpected exception fails only the current batch. It never stops the writer, which would leave every later request waiting forever.
+
+**Cancellation and shutdown.**
+- A client disconnecting (`RequestAborted`) cancels only the wait to get into the queue, never a write already in progress.
+- When the queue stays full for 5 s, the request gets 503. That is well below the test program's client timeout of about 10 s.
+- On shutdown the queue stops accepting messages, the writer drains what is already queued, and only then does the host stop.
+
+**Configuration is found however the service is started.**
+- The first real run against the test program listened on port 5000. The DLL had been started from the repo root, so ASP.NET Core looked for `appsettings.json` in the working directory, didn't find it, and fell back to its defaults. Logging also wrote a line per request.
+- Meanwhile the test program retried refused connections 3.6 million times in 10 minutes, without ever stopping.
+- The fix is to set the content root to the app's own folder, so `appsettings.json` (the port, log levels and storage settings) always loads.
+- A relative `Storage:DatabasePath` is resolved against that folder, and the full path is logged at startup.
+
+**Storage is chosen in one place.** `Storage:Provider` (currently only `Sqlite`) picks the `IMessageStore` implementation in the composition root. Adding Postgres means adding one more case there. The store reads its configuration when it is first resolved, so test hosts can override it.
+
+**What the tests and checks cover.**
+- **Tests:** 14 application tests use a fake store that can hold, fail, or commit-then-throw. With these, the tests can build up batches on purpose and test the failure paths deterministically. There are also 16 API tests that run the real host on a temporary database.
+- **Flakiness:** 10 repeated runs of both suites were all green.
+- **Mutation check:** six planted pipeline bugs were all caught: no reload after a failed commit, stale rockets not refused, apply errors failing the whole batch, applied duplicates not checked by the store, no batching, and snapshots published before the commit.
+- **Real run:** the test program with default settings against the Release build stored 100,000 messages in 38.5 s with `synchronous=FULL`, inside the Phase 2 estimate of 19–57 s. There were no duplicates, rejections or storage failures, and all 20 rockets were complete. After a hard stop and a restart, all 100,000 messages were replayed and the rocket list was byte-for-byte identical.

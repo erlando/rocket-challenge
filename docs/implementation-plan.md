@@ -167,16 +167,18 @@ The **storage interface** (`IMessageStore`) is the seam for swapping in Postgres
 | Endpoint | Behaviour |
 |---|---|
 | `POST /messages` | Returns 204 once the message is stored, and 204 for a duplicate too. Rejected messages: see below. |
-| `GET /rockets/{channel}` | Returns the rocket's state, or 404 if the rocket is unknown |
-| `GET /rockets?sortBy=channel\|type\|mission\|speed\|status\|updatedAt&order=asc\|desc` | Lists all rockets, sorted; 400 for an invalid sort |
-| `GET /health` | Liveness check |
+| `GET /rockets/{channel}` | Returns the rocket, or 404 if the rocket is unknown |
+| `GET /rockets?sortBy=channel\|type\|mission\|speed\|status\|launchedAt\|updatedAt&order=asc\|desc` | Returns `{ "count": n, "rockets": [...] }`, sorted. The defaults are `channel` and `asc`, and both parameters are case-insensitive. A rocket with no value for the field (e.g. no `type` before its launch message) sorts last in either order, and ties are broken by channel. An unknown value gets 400. There is no filtering yet. |
+| `GET /health` | Liveness check, plus the message counters: stored, duplicates, rejected, payload mismatches and storage failures |
 
-Besides its state, each rocket in a response includes:
+A rocket has its state at the top level (`channel`, `type`, `mission`, `speed`, `status`, `explosionReason`, `launchedAt`, `updatedAt`). `status` is one of `awaitingLaunch`, `launched` or `exploded`. A nested `sequence` object shows whether the rocket's data is complete:
 - `lastMessageNumber`: the highest message number received
 - `checkpointMessageNumber`: N
+- `pendingMessageCount`: the number of messages received above N
 - `missingMessageCount`: the number of messages missing below `lastMessageNumber`
+- `isComplete`: true when nothing is missing, so the state is exact
 
-Together these let a dashboard show whether a rocket's data is complete.
+The developer chose this shape in Phase 3. The list is an envelope rather than a bare array, so fields such as paging can be added later without breaking clients.
 
 A message can fail in two ways, and they are handled differently:
 - **Problems with a single message** are caught per message and never fail its batch. They come in three kinds:
@@ -269,7 +271,7 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
 - [x] The `synchronous` setting is chosen from those numbers (FULL), and the duration of the default grading run is estimated: 19–57 s with FULL, about 2 s with NORMAL.
 - [x] Added: a mutation check. Three planted bugs (last write wins; a content change never flagged; a failing insert skipped and the rest committed) each make the contract tests fail.
 
-### Phase 3: Ingestion pipeline and API (~2h)
+### Phase 3: Ingestion pipeline and API (~2h) ✅
 
 **Work**
 - The bounded `Channel<PendingWrite>`.
@@ -284,15 +286,22 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
 - Draining the queue on graceful shutdown, and the cancellation rule from §2.6.
 
 **Verify**
-- [ ] Application tests:
+- [x] Application tests:
   - concurrent posts to the same rocket
   - duplicates within one batch
   - **a bad message in a batch with good ones**: only the bad message is rejected, and the good ones are stored and acknowledged
   - a store failure gives 503 and leaves the snapshots unchanged
   - **a fake store that commits and then throws**: after the reload, memory matches the store
   - a client that disconnects mid-write doesn't stop the message from being stored
-- [ ] API tests with `WebApplicationFactory`: status codes, sorting, and the 404 and 400 cases.
-- [ ] A restart test: post messages, dispose the host, start a new host on the same database, and get the same state.
+  - added: a rocket that can't be reloaded refuses its messages (503) while other rockets carry on
+  - added: queue full, draining on shutdown, replay at startup, and payload mismatches
+- [x] API tests with `WebApplicationFactory`: status codes, sorting, and the 404 and 400 cases.
+- [x] A restart test: post messages, dispose the host, start a new host on the same database, and get the same state.
+- [x] Added: a mutation check. Six planted bugs in the pipeline each make the application tests fail.
+- [x] Added: the real test program with default settings against the Release build:
+  - 100,000 messages stored in 38.5 s, with 0 duplicates, rejections or storage failures
+  - all 20 rockets complete
+  - after a hard stop and a restart, the state was byte-for-byte identical
 
 ### Phase 4: End-to-end verification and resilience (~1h)
 

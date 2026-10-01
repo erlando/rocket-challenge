@@ -443,3 +443,82 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed Phase 2 on `main`: the storage contract, the SQLite store, the contract tests, the benchmark tool, the doc updates, and diary entries 20–21.
+
+---
+
+## 2026-10-01 · 22. Phase 3: asking about the API shape
+
+**Prompt**
+> start phase 3
+
+**Actions**
+- Before building the endpoints, asked the developer three questions, with mock-ups of each option: the JSON shape of a rocket, the shape of the list response, and whether to filter by status.
+- The developer chose the **nested `sequence` object** for a rocket, and asked to discuss the list shape before deciding.
+- *Logged late:* this entry and entry 23 were written during the Phase 3 work instead of in their own turns, which broke the diary rule. They are backfilled in order.
+
+---
+
+## 2026-10-01 · 23. Envelope vs bare array for the list
+
+**Prompt**
+> What would be pros and cons of the list point returning an envelope vs the bare array
+
+**Findings (presented to the developer)**
+- **Envelope.** Pros:
+  - new fields such as paging or an `asOf` timestamp can be added without breaking clients
+  - echoing the sort makes the defaults visible
+  - it matches the Microsoft, Google and JSON:API conventions
+  
+  Cons: it's more verbose, the echo is partly redundant, and paging isn't needed for 20 rockets.
+- **Bare array.** Pros: it's the simplest shape, and paging can still be added through headers (`Link`, `X-Total-Count`), as the GitHub API does. Cons: adding anything to the body later is a breaking change, and a browser dashboard can only read custom headers if the server exposes them.
+- **Recommendation:** an envelope, possibly slimmed down to `{ count, rockets }`.
+
+---
+
+## 2026-10-01 · 24. API decided; Phase 3 implemented
+
+**Prompt**
+> let's go with the envelope without the echo. No filtering right now. Let's continue
+
+**Decisions (the developer's)**
+- The list is `{ "count": n, "rockets": [...] }`, without echoing the sort.
+- No filtering for now.
+- Sorting uses `sortBy` = channel (default) | type | mission | speed | status | launchedAt | updatedAt, and `order` = asc (default) | desc. Empty values sort last in either order, ties are broken by channel, and an unknown value gets 400.
+
+**Actions** (test-first)
+1. **Application layer:**
+   - `RocketSnapshot` and `RocketRegistry`, for lock-free reads
+   - `IngestionOptions`, `IngestionOutcome`, `IngestionUnavailableException` and `IngestionStats`
+   - `IngestionPipeline`, written as a stub first
+2. **Application tests:** 13 tests using a `FakeMessageStore` that can hold, fail or commit-then-throw commits. All 13 failed against the stub, as expected.
+3. **Implementation:**
+   - a bounded channel feeding the single writer loop
+   - each batch applied to working copies, then committed, then published and completed
+   - errors kept to the message that caused them (rejected with 2xx)
+   - after a storage error, the affected rockets are reloaded before anyone is answered; rockets that stay stale refuse messages
+   - enqueueing times out after 5 s, `RequestAborted` cancels only the enqueue, and shutdown drains the queue
+   
+   All 13 tests passed.
+4. **Extra test:** a review of the tests found nothing exercising stale rockets refusing messages, so a test was added. That makes 14.
+5. **API tests:** 16 tests using `WebApplicationFactory` on a temporary database, all failing at first. Then implemented the endpoints, `RocketResponse` / `SequenceResponse` / `RocketListResponse`, `RocketSorting`, `IngestionHostedService` (replay on start, drain on stop), and choosing the store through `Storage:Provider`. All 16 passed.
+6. **Flakiness:** 10 repeated runs of both suites were all green.
+7. **Mutation check:** six planted pipeline bugs were all caught. Two of them first failed to compile under the warnings-as-errors checks and were rewritten.
+8. **Real run against `rockets.exe` with defaults:**
+   - **First attempt failed.** The service listened on port 5000: started from the repo root, it didn't find `appsettings.json` in the working directory. `rockets.exe` retried refused connections 3.6 million times in 10 minutes without stopping. Also, my wait-for-the-service loop didn't fail when the service never came up.
+   - **Fix:** the content root is now the app's own folder, so the configuration always loads. The database path is logged at startup, and the wait loop now uses `curl -sf` and stops on failure.
+   - **Second attempt passed:** 100,000 messages stored in **38.5 s** with `synchronous=FULL`, inside the estimate of 19–57 s. There were 0 duplicates, rejections or storage failures, all 20 rockets were complete, and 6 exploded, matching Phase 0. Logging was down to 14 lines with no per-request lines.
+   - **Restart:** after a hard stop, all 100,000 messages were replayed, and the rocket list was byte-for-byte identical.
+
+**Verification:** 303 tests passed with 0 warnings: 14 capture, 246 domain, 13 storage, 14 application and 16 API.
+
+**Updated docs:** the plan (the API shape in §2.6, Phase 3 ticked with the extra checks), the Phase 3 section of the decision log, and `CLAUDE.md` (the architecture and how to run the service). Not committed yet, so the phase can be reviewed first.
+
+---
+
+## 2026-10-01 · 25. Commit Phase 3
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed Phase 3 on `main`: the ingestion pipeline, the API, their tests, the doc updates, and diary entries 22–25.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Work follows the phases in `docs/implementation-plan.md` (Phases 0–2 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+Work follows the phases in `docs/implementation-plan.md` (Phases 0–3 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
 
 Architecture so far:
 - `src/Rockets.Domain` is pure code with no IO.
@@ -17,11 +17,20 @@ Architecture so far:
   - Reads stream messages per channel in messageNumber order.
 - `src/Rockets.Storage.Sqlite` is the only place with SQL. It uses WAL, with `synchronous=FULL` by default (the developer's choice; `NORMAL` is configurable).
 - Every store must pass `tests/Rockets.Storage.Tests/MessageStoreContractTests`. A new store subclasses it.
+- `src/Rockets.Application/Ingestion/IngestionPipeline` holds the bounded queue and the single writer loop.
+  - Each batch is applied to working copies of the immutable ledgers, then committed, then the snapshots are published and the requests completed, in that order.
+  - Errors in one message are recorded as rejected with 2xx. A storage error gives 503, then reloads the affected rockets (stale rockets refuse messages until the reload succeeds).
+  - `RocketRegistry` holds the immutable snapshots that reads use without locks.
+- `src/Rockets.Api` is the composition root and the endpoints (`POST /messages`, `GET /rockets[/{channel}]`, `GET /health`).
+  - The content root is the app's own folder, so `appsettings.json` loads from any working directory.
+  - `Storage:Provider` selects the store.
 
 - Build: `dotnet build` (.NET 10 SDK, warnings are errors, package versions in `Directory.Packages.props`)
 - Test: `dotnet test`. xUnit v3 runs on Microsoft.Testing.Platform, which `global.json` opts into, so VSTest options don't apply. Shared test-project settings are in `tests/Directory.Build.props`.
 - Run a single test: `dotnet test --project tests/<Project> --filter-method "*Name*"` (also `--filter-class`)
 - Run the service: `dotnet run --project src/Rockets.Api`, which listens on http://localhost:8088.
+  - The default database is `data/rockets.db` under the app's output folder, and the full path is logged at startup.
+  - Override settings with `--Storage:DatabasePath=<path>` and `--Storage:Synchronous=Normal`.
 - Store benchmark: `dotnet run -c Release --project tools/Rockets.StoreBenchmark`, which measures commit throughput per synchronous level and batch size, plus replay time.
 - Capture and probe tool: `tools/Rockets.Capture`, with the commands `serve`, `analyze <file>` and `compare <a> <b>`.
   - `scripts/probe.sh <name> <timeout> [rockets args] -- [server args]` runs the test program against the capture server and prints the analysis.

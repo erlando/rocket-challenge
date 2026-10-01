@@ -6,6 +6,8 @@
     <Project Path="src/Rockets.Storage.Sqlite/Rockets.Storage.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Rockets.Api.Tests/Rockets.Api.Tests.csproj" />
+    <Project Path="tests/Rockets.Application.Tests/Rockets.Application.Tests.csproj" />
     <Project Path="tests/Rockets.Capture.Tests/Rockets.Capture.Tests.csproj" />
     <Project Path="tests/Rockets.Domain.Tests/Rockets.Domain.Tests.csproj" />
     <Project Path="tests/Rockets.Storage.Tests/Rockets.Storage.Tests.csproj" />
