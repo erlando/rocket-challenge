@@ -8,7 +8,7 @@ The repository is empty apart from a .NET `.gitignore`, so the solution is expec
 
 ## What this repo is for
 
-This is a solution to Lunar's backend engineer challenge "Rockets". The challenge brief and the test program live outside the repo, in `../lunar-backend-engineer-challenge/`. `README.md` there is the source of truth for requirements.
+This is a solution to Lunar's backend engineer challenge "Rockets". The challenge brief is in `docs/CHALLENGE.md` and is the source of truth for requirements. It is an exact copy of `README.md` in `../lunar-backend-engineer-challenge/`, which also holds the test program.
 
 The service consumes JSON messages that rockets POST to it and exposes rocket state through a REST API meant for a dashboard. The minimum requirements are:
 - `POST /messages`: the ingestion endpoint the test program posts to.

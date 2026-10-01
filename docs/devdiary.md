@@ -57,3 +57,17 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 - Fast-forward merged `docs/claude-setup` into `main` and deleted the branch.
 - Saved an assistant memory so future commits in this repo go directly on `main`.
 - Committed this diary entry on `main`.
+
+---
+
+## 2026-10-01 · 5. Commit the challenge brief
+
+**Prompt**
+> commit docs/CHALLENGE.md too
+
+**Findings**
+- `docs/CHALLENGE.md` (added by the developer) is an exact copy of the challenge `README.md` in `../lunar-backend-engineer-challenge/`.
+
+**Actions**
+- Updated `CLAUDE.md` to name `docs/CHALLENGE.md` as the in-repo source of truth for requirements.
+- Committed `docs/CHALLENGE.md`, the `CLAUDE.md` change and this entry on `main`.
