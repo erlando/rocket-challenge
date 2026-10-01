@@ -45,3 +45,15 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 **Actions**
 - Added a "Dev diary" section to `CLAUDE.md`. The rule now lives in the repo as well as in the assistant's local memory.
 - Committed `CLAUDE.md` and `docs/devdiary.md`.
+
+---
+
+## 2026-10-01 · 4. Merge into main and commit there from now on
+
+**Prompt**
+> merge it into main and commit there from now on
+
+**Actions**
+- Fast-forward merged `docs/claude-setup` into `main` and deleted the branch.
+- Saved an assistant memory so future commits in this repo go directly on `main`.
+- Committed this diary entry on `main`.
