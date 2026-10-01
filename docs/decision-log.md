@@ -192,3 +192,30 @@ The crash run shows at-least-once delivery handled correctly:
 - The odd `/health` counters gave it away.
 - The Phase 4 results weren't affected: they ran earlier, and `e2e.ps1` refuses a busy port and force-kills its processes.
 - `scripts/probe.sh` now does the same: it checks the port before starting and uses `kill -9`.
+
+## Phase 6: Postgres store
+
+**The swap needed nothing outside the storage project except one `case` in the composition root.** `Rockets.Storage.Postgres` implements `IMessageStore` with Npgsql and a pooled `NpgsqlDataSource`. `Storage:Provider=Postgres` selects it, with `Storage:ConnectionString`. The domain, the pipeline and the API are unchanged.
+
+**The schema follows the contract, not Postgres habits:**
+- `message_time` is `TEXT` in round-trip format. `timestamptz` would drop the offset and keep only microseconds, but the contract requires a message to read back exactly as it was received.
+- `payload_json` is `TEXT`, not `jsonb`, because `jsonb` normalises the JSON and would change the content behind `payload_hash`.
+- `received_at` is a real `timestamptz`, since it's the service's own timestamp. Npgsql only accepts UTC for it.
+- Reads order by `channel COLLATE "C"`, so channels sort by byte value as in SQLite, whatever the database's locale.
+
+**Tests use Testcontainers and are skipped without Docker.**
+- The 10 contract tests run against a `postgres:18-alpine` container: one container per test class, and a fresh database per test.
+- If Docker isn't available, the fixture records the reason and the tests call `Assert.Skip`. Reviewers without Docker therefore get a green `dotnet test` (308 passed, 10 skipped) with the reason shown.
+- This was checked by stopping Docker Desktop. Pointing `DOCKER_HOST` at a dead address didn't work, because Testcontainers falls back to Docker Desktop's named pipe on its own.
+- Red step: all 10 failed against a stub.
+
+**End to end on Postgres.** The service ran on `docker compose` Postgres with the full default 100k run.
+- The oracle passed, now able to read Postgres when given a connection string.
+- After a restart, it replayed 100,000 messages, answered within 1.1 s of starting, and passed again.
+
+**Postgres is slower here: 118.3 s for the default run** (about 850 messages/s), against 38–52 s for SQLite with FULL.
+- Each message still commits alone (average batch about 1.5), and each commit is a network round trip from Windows into the Docker VM plus a durable commit.
+- The store sends one statement per message, mirroring the SQLite store, for clarity.
+- The obvious optimisation is one round trip per batch: a multi-row `INSERT … ON CONFLICT DO NOTHING RETURNING`, then one `SELECT` of the stored hashes for the conflicts. It isn't built, because with this client batches are about one message, so it would barely help.
+
+**Docker housekeeping.** Docker Desktop wasn't running when the phase started. It was started for the tests and the end-to-end run, the compose container and its volume were removed with `down -v`, and Docker Desktop was stopped again, as it had been before.

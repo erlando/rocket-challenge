@@ -7,12 +7,12 @@ Messages arrive out of order and at least once. The service still:
 - treats a redelivery as a duplicate
 - shows the newest state of every rocket while being honest about how complete that state is
 
-It is built with .NET 10 and ASP.NET Core minimal APIs, and stores messages in SQLite behind a storage interface that is designed to be swapped for Postgres.
+It is built with .NET 10 and ASP.NET Core minimal APIs. Messages are stored in SQLite by default, or in Postgres with one setting. Both stores sit behind the same storage interface and pass the same contract tests.
 
 | | |
 |---|---|
 | Grading run (the test program's defaults: 100,000 messages, concurrency 3) | Passes in 38–52 s with durable commits, or 6.5 s with `Synchronous=Normal` |
-| Verification | 308 automated tests, plus end-to-end runs checked by an independent oracle (normal, crash/restart and stress) |
+| Verification | 318 automated tests (10 of them need Docker), plus end-to-end runs checked by an independent oracle (normal, crash/restart and stress on SQLite, and a default run on Postgres) |
 | Design notes | [docs/decision-log.md](docs/decision-log.md) (per phase), [docs/implementation-plan.md](docs/implementation-plan.md) |
 | How AI was used | [How AI was used](#how-ai-was-used), and every prompt in [docs/devdiary.md](docs/devdiary.md) |
 
@@ -37,10 +37,18 @@ curl "http://localhost:8088/health"
 - **Where the data goes:** messages are stored in `data/rockets.db` under the app's output folder, and the full path is logged at startup. State survives restarts: on startup the service replays the log, which takes about 0.2 s per 100,000 messages.
 - **Settings:** override them on the command line, for example `--Storage:DatabasePath=/tmp/rockets.db` or `--Storage:Synchronous=Normal` (faster, but not safe against a power cut; see [Durability](#durability-and-acknowledgements)). They are defined in `src/Rockets.Api/appsettings.json`.
 
+### Running on Postgres
+
+```sh
+docker compose up -d --wait        # Postgres 18 on localhost:5432 (development credentials)
+dotnet run --project src/Rockets.Api -c Release -- --Storage:Provider=Postgres   --Storage:ConnectionString="Host=localhost;Database=rockets;Username=rockets;Password=rockets"
+docker compose down -v             # remove the container and its data
+```
+
 ## Tests and verification
 
 ```sh
-dotnet test                                    # 308 tests
+dotnet test                                    # 318 tests; the 10 Postgres contract tests run in a Docker container and are skipped without Docker
 pwsh ./scripts/e2e.ps1                          # end to end: 10,000 messages from the real test program, checked by the oracle
 pwsh ./scripts/e2e.ps1 -Scenario all            # quick, default (grading run), crash/restart, stress
 dotnet run -c Release --project tools/Rockets.StoreBenchmark   # SQLite commit throughput and replay time
@@ -93,7 +101,7 @@ Run a single test with `dotnet test --project tests/<Project> --filter-method "*
 
 ## How it works
 
-The components and how they depend on each other. Each box is a project. Solid arrows are calls and data flow. Dashed lines are the storage interface's implementations (one of them planned) and the verification tooling.
+The components and how they depend on each other. Each box is a project. Solid arrows are calls and data flow. Dashed lines are the storage interface's implementations and the verification tooling.
 
 ```mermaid
 flowchart TB
@@ -122,8 +130,12 @@ flowchart TB
         sqlite["SqliteMessageStore"]
     end
 
+    subgraph storagePostgres["Rockets.Storage.Postgres"]
+        postgres["PostgresMessageStore"]
+    end
+
     db[("rockets.db<br/>messages · rejected_messages")]
-    postgres["Postgres store (planned)"]
+    pg[("Postgres<br/>messages · rejected_messages")]
 
     subgraph verification["Verification tooling"]
         e2e["scripts/e2e.ps1"]
@@ -145,12 +157,14 @@ flowchart TB
     storeContract -.->|"implemented by"| sqlite
     storeContract -.->|"implemented by"| postgres
     sqlite -->|"read / write"| db
+    postgres -->|"read / write"| pg
 
     rockets -.-|"run by"| e2e
     endpoints -.-|"started by"| e2e
     e2e -.->|"then runs"| oracle
     endpoints -.->|"GET /rockets checked by"| oracle
     db -.->|"read by"| oracle
+    pg -.->|"read by"| oracle
 ```
 
 What happens to a single message, from request to acknowledgement and from commit to read:
@@ -224,7 +238,7 @@ Each phase's reasoning and measurements are in [docs/decision-log.md](docs/decis
 
 | Decision | Chosen | Alternatives and why not |
 |---|---|---|
-| Persistence | **SQLite** message log behind `IMessageStore`, held to a contract-test suite that a Postgres store must also pass | Postgres would need Docker for reviewers to run it. In-memory would lose messages that were already acknowledged. |
+| Persistence | **SQLite** message log by default, behind `IMessageStore`. A Postgres store is selectable with `Storage:Provider=Postgres`, and both pass the same contract tests. | Postgres as the default would need Docker for reviewers to run it, so it is optional. In-memory would lose messages that were already acknowledged. |
 | Ordering | **Checkpoint plus pending replay**: newest data first, with completeness shown in `sequence` | Waiting until gaps fill (stale data). Refolding all messages each time (O(n)). O(1) updates that rely on messages applying in any order (breaks with order-dependent messages). |
 | Recovery | **Replay the full log** at startup (0.2 s per 100k messages) | Saving checkpoints to disk: an independent review flagged that a projection bug would then be saved too. |
 | Concurrency | **Single writer with group commit**, lock-free reads | A lock per rocket: one disk sync per message, and SQLite serialises writes anyway. |
@@ -246,7 +260,7 @@ Each phase's reasoning and measurements are in [docs/decision-log.md](docs/decis
 | Layer | What it shows |
 |---|---|
 | Domain (246 tests) | Every message type, plus validation and payload hashing. 200 seeded runs shuffle and redeliver messages and check the ledger after *every* delivery against a simple in-order fold. |
-| Storage contract (13) | Atomic commits, duplicates and content mismatches, ordered reads, a failed commit leaving nothing behind, and data surviving a reopen. |
+| Storage contract (23) | The same 10 contract tests run against SQLite and against Postgres (in a Testcontainers container, skipped without Docker): atomic commits, duplicates and content mismatches, ordered reads, and a failed commit leaving nothing behind. There are also 3 SQLite-specific tests: data surviving a reopen, and the pragmas. |
 | Ingestion pipeline (14) | A fake store that can hold, fail, or commit and then throw, which exercises batching, error isolation, reloading after an ambiguous commit, stale rockets, a full queue, shutdown draining and disconnects. |
 | HTTP API (16) | The real host on a temporary database: response shapes, sorting, status codes, 503 on a storage failure, and state across a restart. |
 | Capture tool and oracle (19) | The tools that the measurements and the end-to-end check rely on. |
@@ -264,6 +278,7 @@ The **oracle** (`tools/Rockets.Capture`, `expect` and `verify`) shares no code w
 | default (grading run) | 100,000 | 52.0 s | 0 | 0 | PASS |
 | crash: hard kill mid-run, then restart | 10,000 | 36.3 s | 3,201 | 1 | PASS |
 | stress: concurrency 20 | 100,000 | 48.2 s | 0 | 0 | PASS |
+| default on **Postgres** (`docker compose`) | 100,000 | 118.3 s | 0 | 0 | PASS, and PASS again after a restart replayed the log |
 
 In the crash run, one message was committed just before the kill but never acknowledged. It was resent and recognised as a duplicate, and nothing was lost.
 
@@ -271,7 +286,8 @@ In the crash run, one message was committed just before the kill but never ackno
 
 - **Throughput with durable commits is about 2,000 messages/s here.** The test program barely overlaps its requests (the average batch is 1.1 even at concurrency 20), so every message pays one disk sync of about 0.5 ms, and batching can't help. `Synchronous=Normal` removes most of that cost, at the price of power-cut safety.
 - **A gap that never fills** stops that rocket's checkpoint, and pending messages keep growing in memory. With at-least-once delivery this needs the sender to give up. That does happen: the test program drops retries still waiting when it finishes. It also happens when the service rejects a message it can't apply. The gap shows up as `missingMessageCount`.
-- **Single process.** SQLite and the single writer limit the service to one node. The [scaling](#scaling) path below lifts this.
+- **One writer per instance, and one instance.** With SQLite the service is limited to one node. Postgres removes the single-file limit, but running several instances safely needs channel partitioning, which isn't built. The [scaling](#scaling) path below covers it.
+- **Postgres is slower here:** about 850 messages/s (118 s for the default run). Every commit makes a network round trip into the Docker VM, plus a durable commit. Sending each batch in one round trip (multi-row `INSERT … ON CONFLICT` with `RETURNING`) is the obvious next optimisation.
 - **Startup replays the whole log**: O(total messages). That is fast at this scale but grows without bound.
 - **Rules the brief leaves open** are assumptions, documented in [docs/decision-log.md](docs/decision-log.md):
   - An exploded rocket keeps its status, but its other fields keep updating.
@@ -284,7 +300,7 @@ In the crash run, one message was committed just before the kill but never ackno
 ## Scaling
 
 1. **Partition by channel.** Rockets are independent, so N writers can each own a hash range of channels, each with its own store or shard. Reads are unaffected.
-2. **Postgres.** Implement `IMessageStore` with Npgsql, pass the existing contract tests, and select it with `Storage:Provider`. Several service instances then each own a set of partitions, assigned for example by consistent hashing or by a Kafka topic partitioned by channel.
+2. **Postgres.** The store exists (`Storage:Provider=Postgres`) and passes the same contract tests and end-to-end oracle as SQLite. Unlike SQLite, it allows concurrent writers. The next step is several service instances, each owning a set of partitions, assigned for example by consistent hashing or by a Kafka topic partitioned by channel.
 3. **Split ingest and query.** Ingest only appends to the log. Query services build the rocket snapshots as a read model, and `RocketRegistry` is already that read model.
 4. **Snapshots on disk** to bound startup replay, together with a "rebuild from the log" option and a test that a snapshot equals a full replay.
 
@@ -293,7 +309,8 @@ In the crash run, one message was committed just before the kill but never ackno
 ```
 src/Rockets.Domain           messages, parsing and validation, RocketState, RocketLedger (pure, no IO)
 src/Rockets.Application      IngestionPipeline (queue + single writer), RocketRegistry, the IMessageStore contract
-src/Rockets.Storage.Sqlite   the SQLite store (all SQL lives here)
+src/Rockets.Storage.Sqlite   the SQLite store (all SQLite SQL lives here)
+src/Rockets.Storage.Postgres the Postgres store (all Postgres SQL lives here); docker-compose.yml runs Postgres locally
 src/Rockets.Api              composition root and endpoints
 tests/                       unit, contract, pipeline and API tests; tests/e2e holds the oracle's expected states
 tools/Rockets.Capture        capture server, traffic analysis and the oracle (developer tool)

@@ -6,7 +6,7 @@ using Rockets.Capture;
 //   analyze <capture.ndjson>
 //   compare <a.ndjson> <b.ndjson>
 //   expect  <capture.ndjson> <expected.json>
-//   verify  <expected.json> <service url> <database path>
+//   verify  <expected.json> <service url> <SQLite database path | Postgres connection string>
 return args.FirstOrDefault() switch
 {
     "serve" => await CaptureServer.RunAsync(args[1..]),
@@ -25,7 +25,7 @@ static int Usage()
           analyze <capture.ndjson>
           compare <a.ndjson> <b.ndjson>
           expect  <capture.ndjson> <expected.json>
-          verify  <expected.json> <service url> <database path>
+          verify  <expected.json> <service url> <SQLite database path | Postgres connection string>
         """);
     return 2;
 }

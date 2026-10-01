@@ -1,0 +1,22 @@
+# Postgres for running the service with Storage:Provider=Postgres. For local development only:
+# the credentials below are not secrets. See README.md, "Running on Postgres".
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: rockets
+      POSTGRES_USER: rockets
+      POSTGRES_PASSWORD: rockets
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18 images keep their data under /var/lib/postgresql.
+      - rockets-postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rockets -d rockets"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  rockets-postgres:

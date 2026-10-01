@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Data.Common;
 using Microsoft.Data.Sqlite;
+using Npgsql;
 
 namespace Rockets.Capture;
 
@@ -216,13 +218,15 @@ public static class Oracle
         }).ToList();
     }
 
-    private static List<StoredMessage> ReadStoredMessages(string databasePath)
+    /// <summary>Reads the service's message log: a SQLite file path, or a Postgres connection string (contains "Host=").</summary>
+    private static List<StoredMessage> ReadStoredMessages(string database)
     {
-        var connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadOnly }.ToString();
-        using var connection = new SqliteConnection(connectionString);
+        using DbConnection connection = database.Contains("Host=", StringComparison.OrdinalIgnoreCase)
+            ? new NpgsqlConnection(database)
+            : new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Mode = SqliteOpenMode.ReadOnly }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT channel, message_number, message_type, payload_json FROM messages ORDER BY channel, message_number";
+        command.CommandText = "SELECT channel, message_number, message_type, payload_json FROM messages";
         using var reader = command.ExecuteReader();
         var messages = new List<StoredMessage>();
         while (reader.Read())

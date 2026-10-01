@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <ProjectReference Include="..\Rockets.Application\Rockets.Application.csproj" />
+    <ProjectReference Include="..\Rockets.Storage.Postgres\Rockets.Storage.Postgres.csproj" />
     <ProjectReference Include="..\Rockets.Storage.Sqlite\Rockets.Storage.Sqlite.csproj" />
   </ItemGroup>
 </Project>

@@ -1,8 +1,10 @@
+using Npgsql;
 using Rockets.Api;
 using Rockets.Api.Rockets;
 using Rockets.Application.Ingestion;
 using Rockets.Application.Rockets;
 using Rockets.Application.Storage;
+using Rockets.Storage.Postgres;
 using Rockets.Storage.Sqlite;
 
 // The content root is the app's own folder, not the working directory, so appsettings.json (port 8088, log levels,
@@ -89,8 +91,14 @@ static IMessageStore CreateStore(IServiceProvider services)
             var synchronous = Enum.Parse<SqliteSynchronous>(configuration["Synchronous"] ?? nameof(SqliteSynchronous.Full), ignoreCase: true);
             logger.LogInformation("Storing messages in SQLite at {Path} (synchronous={Synchronous})", path, synchronous);
             return new SqliteMessageStore(new SqliteStoreOptions(path, synchronous), services.GetRequiredService<TimeProvider>());
+        case "Postgres":
+            var connectionString = configuration["ConnectionString"]
+                ?? throw new InvalidOperationException("Storage:ConnectionString is required for the Postgres provider.");
+            var target = new NpgsqlConnectionStringBuilder(connectionString);
+            logger.LogInformation("Storing messages in Postgres at {Host}:{Port}/{Database}", target.Host, target.Port, target.Database);
+            return new PostgresMessageStore(new PostgresStoreOptions(connectionString), services.GetRequiredService<TimeProvider>());
         case var provider:
-            throw new InvalidOperationException($"Unknown storage provider '{provider}'. Supported: Sqlite.");
+            throw new InvalidOperationException($"Unknown storage provider '{provider}'. Supported: Sqlite, Postgres.");
     }
 }
 

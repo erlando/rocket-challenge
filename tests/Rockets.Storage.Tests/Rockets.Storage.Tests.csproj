@@ -1,5 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Rockets.Storage.Sqlite\Rockets.Storage.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Rockets.Storage.Postgres\Rockets.Storage.Postgres.csproj" />
   </ItemGroup>
 </Project>

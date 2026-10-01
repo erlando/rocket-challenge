@@ -3,6 +3,7 @@
     <Project Path="src/Rockets.Api/Rockets.Api.csproj" />
     <Project Path="src/Rockets.Application/Rockets.Application.csproj" />
     <Project Path="src/Rockets.Domain/Rockets.Domain.csproj" />
+    <Project Path="src/Rockets.Storage.Postgres/Rockets.Storage.Postgres.csproj" />
     <Project Path="src/Rockets.Storage.Sqlite/Rockets.Storage.Sqlite.csproj" />
   </Folder>
   <Folder Name="/tests/">

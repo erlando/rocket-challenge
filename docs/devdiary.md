@@ -649,3 +649,52 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 **Actions**
 - Committed Phase 5 on `main`: `README.md` (with the component flowchart and the sequence diagram), the `scripts/probe.sh` port check and forced kill, the doc updates, and diary entries 28–31.
 - Still open: whether to do Phase 6 (the Postgres store).
+
+---
+
+## 2026-10-01 · 32. Phase 6: Postgres store
+
+**Prompt**
+> go ahead with phase 6
+
+**Actions** (test-first)
+1. **Docker.** Docker Desktop wasn't running (no engine pipe), so I started it, telling the developer, and stopped it again at the end.
+2. **Stub and tests.** Added `src/Rockets.Storage.Postgres` (Npgsql 10.0.3) as a stub, and `PostgresMessageStoreTests`, which runs the existing contract suite against a Testcontainers `postgres:18-alpine` (Testcontainers.PostgreSql 4.15.0). It uses one container per class and a fresh database per test, and skips the tests with the reason when Docker isn't available. Red: 10 of 10 failed against the stub.
+3. **Implementation:**
+   - `PostgresMessageStore`, structured like the SQLite store
+   - `message_time` as round-trip `TEXT`, `payload_json` as `TEXT` (not `jsonb`), `received_at` as `timestamptz` (in UTC)
+   - reads ordered with `COLLATE "C"`
+   
+   Green: 23 of 23 storage tests (10 Postgres, 13 SQLite).
+4. **Wiring:** `Storage:Provider=Postgres` with `Storage:ConnectionString` in the composition root, which logs the host and database but no password. Added `docker-compose.yml` (Postgres 18 with a health check; the data is under `/var/lib/postgresql`, as the 18 images expect).
+5. **Oracle:** `verify` now also accepts a Postgres connection string as its database argument.
+6. **End to end on Postgres:**
+   - `docker compose up`, the Release service with Provider=Postgres, and the default 100k run: exit 0 in 118.3 s, 100,000 stored, oracle PASS
+   - after a restart: 100,000 messages replayed, answering after 1.1 s, oracle PASS
+   - `docker compose down -v` afterwards
+7. **The skip path:**
+   - Pointing `DOCKER_HOST` at a dead address didn't simulate a missing Docker, because Testcontainers fell back to Docker Desktop's pipe and ran the tests anyway.
+   - Stopped Docker Desktop with `docker desktop stop`: 13 passed and 10 were skipped, with the reason "Postgres contract tests need Docker, which is not available".
+   - The whole `dotnet test` exits 0, with 318 total: 308 passed and 10 skipped.
+8. **README:**
+   - the intro, and a "Running on Postgres" section
+   - the test counts, and the storage rows in the decision and verification tables
+   - an e2e row for Postgres, the limitations (one instance, Postgres being slower) and the scaling step
+   - the project layout
+   - the flowchart: `PostgresMessageStore` in its own box with a Postgres database, read by the oracle
+   
+   The flowchart was rendered twice with the Mermaid CLI and inspected.
+
+**Regression check:** `pwsh ./scripts/e2e.ps1 -Scenario quick` on SQLite still passes, since the oracle's database code and the composition root changed.
+
+**Updated docs:** ticked Phase 6 in the plan (with the extra checks), added the Phase 6 section to the decision log, and updated `CLAUDE.md`. Not committed yet, so the phase can be reviewed first.
+
+---
+
+## 2026-10-01 · 33. Commit Phase 6
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed Phase 6 on `main`: the Postgres store, its Testcontainers contract tests, `docker-compose.yml`, the Postgres provider in the composition root, the oracle reading Postgres, the README and doc updates, and diary entries 32–33. Every phase in the implementation plan (0–6) is now done.

@@ -351,16 +351,18 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
   - the quick start (`dotnet run`, the test program with its defaults, `curl`): 100,000 messages in 42.2 s, the database where the README says it is
   - `pwsh ./scripts/e2e.ps1`: PASS
 
-### Phase 6 (stretch): Postgres store
+### Phase 6 (stretch): Postgres store ✅
 
-This phase is **dropped unless more than 1h of the budget remains** after Phase 5. Without it, the case for swapping in Postgres rests on the `IMessageStore` interface and its contract-test suite.
+This phase is **dropped unless more than 1h of the budget remains** after Phase 5. (The developer chose to do it.) Without it, the case for swapping in Postgres rests on the `IMessageStore` interface and its contract-test suite.
 
 **Work**
 - `Rockets.Storage.Postgres` behind the same `IMessageStore`, selected through the `Storage:Provider` setting.
 - A `docker-compose.yml` for Postgres.
 
 **Verify**
-- [ ] The same contract-test suite passes against Postgres, using Testcontainers. This shows the swap needs no changes outside the storage project.
+- [x] The same contract-test suite passes against Postgres, using Testcontainers. This shows the swap needs no changes outside the storage project. The only other change is one new `case` in the composition root.
+- [x] Added: without Docker, the 10 Postgres tests are skipped with the reason, and `dotnet test` still exits 0.
+- [x] Added: the service on Postgres (`docker compose`) passes the end-to-end oracle for the default 100k run (118.3 s), and passes again after a restart replayed the log.
 
 ## 4. AI workflow
 

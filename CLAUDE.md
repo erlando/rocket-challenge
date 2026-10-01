@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Work follows the phases in `docs/implementation-plan.md` (Phases 0–5 are done; Phase 6, Postgres, is optional). Record decisions per phase in `docs/decision-log.md`. `README.md` is the reviewer-facing summary, so keep its numbers and claims in step with the code and the decision log. Update this file as the architecture takes shape.
+Work follows the phases in `docs/implementation-plan.md` (Phases 0–6 are all done). Record decisions per phase in `docs/decision-log.md`. `README.md` is the reviewer-facing summary, so keep its numbers and claims in step with the code and the decision log. Update this file as the architecture takes shape.
 
 Architecture so far:
 - `src/Rockets.Domain` is pure code with no IO.
@@ -15,7 +15,10 @@ Architecture so far:
 - `src/Rockets.Application/Storage/IMessageStore` is the storage seam: an append-only message log, which is the only stored state.
   - `CommitAsync(messages, rejections)` writes one atomic batch and reports duplicates, with a payload-hash mismatch flag.
   - Reads stream messages per channel in messageNumber order.
-- `src/Rockets.Storage.Sqlite` is the only place with SQL. It uses WAL, with `synchronous=FULL` by default (the developer's choice; `NORMAL` is configurable).
+- `src/Rockets.Storage.Sqlite` is the default store. It uses WAL, with `synchronous=FULL` by default (the developer's choice; `NORMAL` is configurable).
+- `src/Rockets.Storage.Postgres` is selected with `--Storage:Provider=Postgres --Storage:ConnectionString=...`, and `docker-compose.yml` runs Postgres 18 locally.
+  - SQL lives only in the two storage projects.
+  - Its contract tests use Testcontainers, and are skipped (not failed) without Docker.
 - Every store must pass `tests/Rockets.Storage.Tests/MessageStoreContractTests`. A new store subclasses it.
 - `src/Rockets.Application/Ingestion/IngestionPipeline` holds the bounded queue and the single writer loop.
   - Each batch is applied to working copies of the immutable ledgers, then committed, then the snapshots are published and the requests completed, in that order.
