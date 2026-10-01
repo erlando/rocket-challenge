@@ -522,3 +522,50 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed Phase 3 on `main`: the ingestion pipeline, the API, their tests, the doc updates, and diary entries 22–25.
+
+---
+
+## 2026-10-01 · 26. Phase 4: end-to-end verification and resilience
+
+**Prompt**
+> start phase 4
+
+**Actions**
+1. **Oracle** (`tools/Rockets.Capture/Oracle.cs`, new `expect` and `verify` commands). It doesn't reference `Rockets.Domain`.
+   - `expect` folds each rocket from a capture with its own simple rules. For each rocket it records the final state, the message count, and a SHA-256 hash of all its messages in order.
+   - `verify` compares with `GET /rockets`, and opens the service's SQLite log read-only to check every expected message's content.
+   - 5 unit tests.
+2. **Deviation from the plan:** the expected-state files (`tests/e2e/expected-seed444-{10000,100000}.json`, about 7 KB each) are committed instead of capturing on every run. A capture on every run would cost an extra 100k run and a wait for client ports. They were generated from fresh seed-444 captures against the capture server.
+3. **Checked the checker:** the database from the separate Phase 3 run passed against the 100k expectation, and failed with 124 differences against the 10k one.
+4. **`scripts/e2e.ps1`**, which needs pwsh 7. It has four scenarios (quick, default, crash, stress) and a `-RegenerateExpected` switch.
+   - It refuses to start if port 8088 is busy, waits for health, and waits for Windows client ports between scenarios.
+   - In the crash scenario it hard-kills the service 4 s in and restarts it 3 s later.
+   - It picks the binary for the OS and architecture, and fails on an oracle failure, a non-zero exit, or a dropped retry.
+   - The first run cut off columns and used Danish number formatting, so the script now uses invariant formatting and also writes `artifacts/e2e/results.json`.
+5. **`-Scenario all`:** every scenario passed.
+
+   | Scenario | Messages | Time | Result |
+   |---|---:|---:|---|
+   | quick | 10k | 5.3 s | PASS |
+   | default | 100k | 52.0 s | PASS |
+   | crash | 10k | 36.3 s | PASS: 3,201 retries during the outage, 1 duplicate (committed before the kill but not acknowledged), 0 dropped |
+   | stress | 100k at concurrency 20 | 48.2 s | PASS |
+6. **Looked into why the stress run wasn't faster:**
+   - Added a `commits` counter to `IngestionStats` and `/health`, and covered it in a test. The average batch at concurrency 20 is **1.12**.
+   - The do-nothing capture server needs **20 s** at concurrency 20, against 3–4 s at concurrency 3, so the test program itself is the limit and its requests barely overlap.
+   - The default run with `synchronous=NORMAL` takes **6.5 s** (PASS). So with FULL, the time is almost entirely one disk sync per message, about 0.5 ms each.
+   - This corrects the earlier expectation that group commit would help under load: with this client, it can't. FULL stays the default, as the developer decided; this only puts an exact price on it.
+
+**Verification:** `dotnet test` shows 308 tests passing with 0 warnings, and `pwsh ./scripts/e2e.ps1 -Scenario all` passed every scenario.
+
+**Updated docs:** ticked Phase 4 in the plan (with what was actually built and the results), added the Phase 4 section to the decision log (the results table and where the time goes), and added the e2e commands and the oracle's independence rule to `CLAUDE.md`. Not committed yet, so the phase can be reviewed first.
+
+---
+
+## 2026-10-01 · 27. Commit Phase 4
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed Phase 4 on `main`: the oracle, the e2e script, the expected-state files, the commit counter, the doc updates, and diary entries 26–27.

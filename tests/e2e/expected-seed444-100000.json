@@ -1,0 +1,226 @@
+{
+  "source": "seed444-100000.ndjson",
+  "messageCount": 100000,
+  "rockets": [
+    {
+      "channel": "0e9e9df5-38fd-52e2-916f-c858b9eb4ea5",
+      "type": "Atlas-H",
+      "mission": "GEMINI",
+      "speed": 6500,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6486,
+      "messageCount": 6486,
+      "contentHash": "672a830c15b633680fcb2ef2dec8609ef0b96304cf937f53d1d8af8e747f8ac4"
+    },
+    {
+      "channel": "1ba8211d-d248-5ddb-946d-1127ebf66c9e",
+      "type": "Titan-IV",
+      "mission": "MERCURY",
+      "speed": 1000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6362,
+      "messageCount": 6362,
+      "contentHash": "97a6a49e4481063f1658761a97a9fb7fb5fc87d163ea53797faf20688c835bc6"
+    },
+    {
+      "channel": "4508785c-a950-56e2-bb44-f77ba8813dad",
+      "type": "Scout",
+      "mission": "SKYLAB",
+      "speed": 14000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6484,
+      "messageCount": 6484,
+      "contentHash": "6bb9a263f6267f9a50f595dfc48bb44291231265c1c0dbfbca09eee74e22230c"
+    },
+    {
+      "channel": "467cbde6-01a1-5883-b6df-9bb52c2a468d",
+      "type": "Thor-Agena",
+      "mission": "SKYLAB",
+      "speed": 25000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6208,
+      "messageCount": 6208,
+      "contentHash": "d66eb4647ee47f53fe9c6ac834432e5cbf0515d4b2a13641eec3cc3b2933f6b0"
+    },
+    {
+      "channel": "54ba6828-71d6-5044-a975-9c8df25ff5c2",
+      "type": "Thor-Delta",
+      "mission": "SKYLAB",
+      "speed": 4000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6397,
+      "messageCount": 6397,
+      "contentHash": "ac20f5fcfc10dc61eeba02a4cd2dc8fec3c3243ef0c8d409e572ef51ae5469f2"
+    },
+    {
+      "channel": "5b6ffd63-8b4a-53ec-8f07-d9c54772ef0a",
+      "type": "New-Shepard",
+      "mission": "MERCURY",
+      "speed": 1500,
+      "status": "exploded",
+      "explosionReason": "PRESSURE_VESSEL_FAILURE",
+      "lastMessageNumber": 2091,
+      "messageCount": 2091,
+      "contentHash": "af8fe2c98a435de7fa36f8894300c73a79f24458e10096826dded5dff0dc45b6"
+    },
+    {
+      "channel": "69ce1e02-7a5e-56cf-84c6-695e0da4f09e",
+      "type": "Falcon-1",
+      "mission": "APOLLO",
+      "speed": 1000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6376,
+      "messageCount": 6376,
+      "contentHash": "cc4266482b45435e82a9d6f48bff5bd8e94ce345cc54e36d90a7f4abbc5d73f6"
+    },
+    {
+      "channel": "726144d5-0920-5daa-b299-4981e09422e9",
+      "type": "Conestoga",
+      "mission": "ARTEMIS",
+      "speed": 21000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6498,
+      "messageCount": 6498,
+      "contentHash": "fefe7fba75122a593001a09d801cebadc7ece371df09849777a3beebb5da5854"
+    },
+    {
+      "channel": "7973c102-4cd9-5c85-8846-8d44113ef0c6",
+      "type": "Thor-Able",
+      "mission": "APOLLO_SOYUZ",
+      "speed": 3000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6361,
+      "messageCount": 6361,
+      "contentHash": "452b76e0036fb625421f2e9a9959306757c74bd53109bd6091de910dcac6246b"
+    },
+    {
+      "channel": "7e61b70c-50fc-5ebf-bba5-0fd498bd6acc",
+      "type": "PGM-19-Jupiter",
+      "mission": "SHUTTLE_MIR",
+      "speed": 11000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6208,
+      "messageCount": 6208,
+      "contentHash": "87a5b93dd8adf195eda7d8be94c50f545b5927766f3146d46a9eb82fae46ae6e"
+    },
+    {
+      "channel": "8a6e7887-064f-54fa-b5ee-fac02e0dc05c",
+      "type": "Electron",
+      "mission": "SKYLAB",
+      "speed": 4000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6213,
+      "messageCount": 6213,
+      "contentHash": "cd046719eb5da052255a01922c6eaea274952d3045b043b9f9a3a8c2a5154823"
+    },
+    {
+      "channel": "8c07aa1d-d55d-554b-8f05-894a3e311185",
+      "type": "Saturn-I",
+      "mission": "GEMINI",
+      "speed": 1500,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6359,
+      "messageCount": 6359,
+      "contentHash": "1972c4ca68c9f96a99f38c7e04a4c557c413e5d10df88579b5e0ace245a28693"
+    },
+    {
+      "channel": "94d2d901-8dbc-5fa1-8b49-7c50972e76a1",
+      "type": "Juno-I",
+      "mission": "APOLLO",
+      "speed": 11000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6283,
+      "messageCount": 6283,
+      "contentHash": "5b6a577c3b775ad98c013eda1ed0b141788f8942fd49fcb7060cab258d11fb8c"
+    },
+    {
+      "channel": "98231e34-0fab-53da-81f6-a9a6397e10ef",
+      "type": "Delta-5000",
+      "mission": "SHUTTLE_MIR",
+      "speed": 4500,
+      "status": "exploded",
+      "explosionReason": "FROZEN_O_RINGS",
+      "lastMessageNumber": 353,
+      "messageCount": 353,
+      "contentHash": "2291aa7ac61f30dfc58d01fe4bfd1110d448b278326ba200b4daeba46c65b7fa"
+    },
+    {
+      "channel": "98b02c03-4e00-581b-8d12-605118a2cdf8",
+      "type": "Antares",
+      "mission": "APOLLO_SOYUZ",
+      "speed": 26000,
+      "status": "exploded",
+      "explosionReason": "PRESSURE_VESSEL_FAILURE",
+      "lastMessageNumber": 708,
+      "messageCount": 708,
+      "contentHash": "2ff6ae3ddd3a5e1760cb83336c96958276ecfe00f44c324332c1bfc2e5cdb3ef"
+    },
+    {
+      "channel": "a4e62b5b-a3e0-54c8-9e63-5a51ee9d7c1d",
+      "type": "Juno-II",
+      "mission": "APOLLO_SOYUZ",
+      "speed": 1000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6094,
+      "messageCount": 6094,
+      "contentHash": "9e99adf6cbe88928b1bc1e271e03d67ea034be60c3e44ee5a1b232e2e36d849c"
+    },
+    {
+      "channel": "af465720-41b1-559a-adeb-4b86eb5df254",
+      "type": "Athena",
+      "mission": "SHUTTLE_MIR",
+      "speed": 13500,
+      "status": "exploded",
+      "explosionReason": "UNKNOWN_OBJECT_COLLISION",
+      "lastMessageNumber": 564,
+      "messageCount": 564,
+      "contentHash": "b1187e7d5f91edc5ef843e2b53ce3ce3385b02af33cdfcdf36938b79d1ad5632"
+    },
+    {
+      "channel": "d093fa48-f328-5340-91ef-ecf0d87fa357",
+      "type": "Pegasus",
+      "mission": "ARTEMIS",
+      "speed": 2000,
+      "status": "launched",
+      "explosionReason": null,
+      "lastMessageNumber": 6323,
+      "messageCount": 6323,
+      "contentHash": "90e13d2b3cf9764b82be2bb8aa96b113954d313505c949577d7c90247a49241d"
+    },
+    {
+      "channel": "f4594280-f06a-56fb-81af-0b703b751eeb",
+      "type": "Falcon-9",
+      "mission": "APOLLO_SOYUZ",
+      "speed": 5000,
+      "status": "exploded",
+      "explosionReason": "FROZEN_O_RINGS",
+      "lastMessageNumber": 5405,
+      "messageCount": 5405,
+      "contentHash": "7e4c8534951970c896b26a27b688e865323bbc3d82c30f9bf82aa0ba8c248de9"
+    },
+    {
+      "channel": "f9fd3459-ed56-5d78-b1fe-b547966417b9",
+      "type": "Titan-IIID",
+      "mission": "APOLLO",
+      "speed": 1500,
+      "status": "exploded",
+      "explosionReason": "SYSTEM_MALFUNCTION",
+      "lastMessageNumber": 2227,
+      "messageCount": 2227,
+      "contentHash": "2deea2744f75caaa2d6e891a1faa10b8906820c966f50839591c60daaf64995d"
+    }
+  ]
+}

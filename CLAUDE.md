@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Work follows the phases in `docs/implementation-plan.md` (Phases 0–3 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+Work follows the phases in `docs/implementation-plan.md` (Phases 0–4 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
 
 Architecture so far:
 - `src/Rockets.Domain` is pure code with no IO.
@@ -31,8 +31,13 @@ Architecture so far:
 - Run the service: `dotnet run --project src/Rockets.Api`, which listens on http://localhost:8088.
   - The default database is `data/rockets.db` under the app's output folder, and the full path is logged at startup.
   - Override settings with `--Storage:DatabasePath=<path>` and `--Storage:Synchronous=Normal`.
+- End-to-end: `pwsh ./scripts/e2e.ps1 [-Scenario quick|default|crash|stress|all] [-RegenerateExpected]`.
+  - It runs `vendor/rockets` against the Release service on a fresh database, then runs the oracle (`Rockets.Capture verify`).
+  - The oracle compares against `tests/e2e/expected-seed444-*.json`. Those files come from seed-444 captures, made with `expect`.
+  - Port 8088 must be free.
 - Store benchmark: `dotnet run -c Release --project tools/Rockets.StoreBenchmark`, which measures commit throughput per synchronous level and batch size, plus replay time.
-- Capture and probe tool: `tools/Rockets.Capture`, with the commands `serve`, `analyze <file>` and `compare <a> <b>`.
+- Capture and probe tool: `tools/Rockets.Capture`, with the commands `serve`, `analyze <file>`, `compare <a> <b>`, `expect <capture> <out.json>` and `verify <expected.json> <url> <db>`.
+  - The oracle (`Oracle.cs`) must stay independent of `Rockets.Domain`. It folds rockets with its own simple rules.
   - `scripts/probe.sh <name> <timeout> [rockets args] -- [server args]` runs the test program against the capture server and prints the analysis.
   - Captures go in `artifacts/`, which is git-ignored.
 

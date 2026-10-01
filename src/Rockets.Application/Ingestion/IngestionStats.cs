@@ -8,6 +8,7 @@ public sealed class IngestionStats
     private long _rejected;
     private long _payloadMismatches;
     private long _storeFailures;
+    private long _commits;
 
     public long Stored => Interlocked.Read(ref _stored);
 
@@ -19,6 +20,9 @@ public sealed class IngestionStats
     public long PayloadMismatches => Interlocked.Read(ref _payloadMismatches);
 
     public long StoreFailures => Interlocked.Read(ref _storeFailures);
+
+    /// <summary>Successful batch commits. Stored messages divided by commits is the average batch size.</summary>
+    public long Commits => Interlocked.Read(ref _commits);
 
     internal void Add(IngestionOutcome outcome)
     {
@@ -33,4 +37,6 @@ public sealed class IngestionStats
     internal void AddPayloadMismatch() => Interlocked.Increment(ref _payloadMismatches);
 
     internal void AddStoreFailure() => Interlocked.Increment(ref _storeFailures);
+
+    internal void AddCommit() => Interlocked.Increment(ref _commits);
 }

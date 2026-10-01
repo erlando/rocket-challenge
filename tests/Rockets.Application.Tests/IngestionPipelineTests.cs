@@ -98,6 +98,7 @@ public sealed class IngestionPipelineTests : IAsyncLifetime
         Assert.Equal(IngestionOutcome.Stored, await second);
         Assert.Equal(IngestionOutcome.Duplicate, await redelivered);
         Assert.Equal(2, _store.Batches.Count);
+        Assert.Equal(2, _stats.Commits);
         Assert.Equal(2, _store.Messages.Count);
         Assert.Equal(600, Rocket().State.Speed);
     }

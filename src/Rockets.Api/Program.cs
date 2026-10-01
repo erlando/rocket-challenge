@@ -69,6 +69,7 @@ app.MapGet("/health", (RocketRegistry registry, IngestionStats stats) => Results
         rejected = stats.Rejected,
         payloadMismatches = stats.PayloadMismatches,
         storeFailures = stats.StoreFailures,
+        commits = stats.Commits,
     },
 }));
 

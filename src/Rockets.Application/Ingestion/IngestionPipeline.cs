@@ -223,6 +223,7 @@ public sealed class IngestionPipeline
             return;
         }
 
+        _stats.AddCommit();
         foreach (var (channel, ledger) in working)
         {
             _ledgers[channel] = ledger;

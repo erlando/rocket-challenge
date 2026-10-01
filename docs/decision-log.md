@@ -134,3 +134,47 @@ These are the decisions made during the implementation, one section per phase. T
 - **Flakiness:** 10 repeated runs of both suites were all green.
 - **Mutation check:** six planted pipeline bugs were all caught: no reload after a failed commit, stale rockets not refused, apply errors failing the whole batch, applied duplicates not checked by the store, no batching, and snapshots published before the commit.
 - **Real run:** the test program with default settings against the Release build stored 100,000 messages in 38.5 s with `synchronous=FULL`, inside the Phase 2 estimate of 19–57 s. There were no duplicates, rejections or storage failures, and all 20 rockets were complete. After a hard stop and a restart, all 100,000 messages were replayed and the rocket list was byte-for-byte identical.
+
+## Phase 4: End-to-end verification and resilience
+
+**The oracle is independent of the service, and its ground truth comes from outside it.** `Rockets.Capture` gained two commands, `expect` and `verify`.
+- `expect` folds every rocket from a seed-444 capture, made against the capture server rather than the service. It uses its own simple rules and doesn't reference `Rockets.Domain`, so a bug in the service's ordering or state logic can't hide in both. For each rocket it records the final state, the message count, and a SHA-256 hash over all messages in number order.
+- `verify` compares those with `GET /rockets` and with the service's SQLite log, which it opens read-only. Every expected message must be stored with byte-identical content.
+- Message times aren't compared, because the test program sets them when it sends, so they differ between runs.
+
+**Expected-state files are committed instead of capturing on every run.** Capturing a 100k-message run on every e2e run would cost an extra run plus a wait of about a minute for Windows client ports. Instead, the files for 10k and 100k messages (about 7 KB each) live in `tests/e2e/`, and `-RegenerateExpected` recaptures them.
+
+**Checking the checker.**
+- Against the database of the separate Phase 3 default run, `verify` passed.
+- Against the wrong expectation (10k instead of 100k), it failed with 124 differences.
+- Five unit tests cover the folding, the content hash, and the reporting of wrong state, an incomplete sequence, a missing rocket, and a missing or altered stored message.
+
+**Results** (`pwsh ./scripts/e2e.ps1 -Scenario all`, Release build, `synchronous=FULL`, this machine)
+
+| Scenario | Messages | Time | Test program retries | Duplicates | Oracle |
+|---|---:|---:|---:|---:|---|
+| quick | 10,000 | 5.3 s | 0 | 0 | PASS |
+| default (the grading run) | 100,000 | 52.0 s | 0 | 0 | PASS |
+| crash: hard kill 4 s in, restart 3 s later | 10,000 | 36.3 s | 3,201 | 1 | PASS |
+| stress: concurrency 20 | 100,000 | 48.2 s | 0 | 0 | PASS |
+
+The crash run shows at-least-once delivery handled correctly:
+- While the service was down, the test program retried 3,201 times.
+- One message was committed just before the kill but never acknowledged. It was resent and recognised as a duplicate.
+- No retry was dropped, and the log holds all 10,000 messages exactly.
+
+**Where the time goes: one disk sync per message.** A new `commits` counter in `/health` gives the average batch size (stored messages divided by commits).
+- Even at concurrency 20, the average batch is **1.12**, so requests almost never overlap at the writer.
+- The test program is the limit. It opens a connection per message, and against the do-nothing capture server it needs 3–4 s for 100k messages at concurrency 3, but **20 s at concurrency 20**: more concurrency makes it slower.
+- With `synchronous=FULL`, each message therefore pays a whole disk sync (about 0.5 ms). The default run takes 38–52 s, about 2,000 messages/s.
+- The same run with `synchronous=NORMAL` takes **6.5 s** and also passes the oracle. So the service adds little beyond the disk sync.
+- This doesn't change the developer's choice of FULL (a 2xx survives a power cut), but it puts an exact price on it.
+- It also corrects the expectation that group commit would help under load: with this client, it can't. A client that overlapped its requests, or a service that acknowledged before the disk sync, would change that. The latter breaks what a 2xx is meant to promise, so it wasn't built.
+
+**Script robustness.**
+- The script refuses to start if port 8088 is already in use.
+- It waits for the service's health endpoint, and fails if the service exits or doesn't answer within 60 s.
+- On Windows it waits for client ports in TIME_WAIT to drop below 1,000 between scenarios.
+- It picks the `rockets` binary for the OS and architecture.
+- It writes `artifacts/e2e/results.json`, because the console table cuts off columns.
+- It fails if the oracle fails, if the test program exits non-zero, or if any retry was dropped.
