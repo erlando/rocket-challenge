@@ -339,3 +339,52 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 - Committed on `main` in two commits:
   - the vendored `rockets` binaries, with the executable bit set on the macOS and Linux builds
   - Phase 0: the skeleton, the capture tool and its tests, the probe script, the plan and doc updates, and diary entries 15–17
+
+---
+
+## 2026-10-01 · 18. Phase 1: domain model and ordering
+
+**Prompt**
+> start phase 1
+
+**Actions** (test-first, as the plan prescribes)
+1. **Stubs:** wrote the public shape of the domain as stubs that throw `NotImplementedException`:
+   - message records (one payload record per message type, plus `UnknownMessage`)
+   - `MessageParser`
+   - `RocketState`
+   - `RocketLedger`, with the outcomes `Duplicate` / `Accepted` / `Advanced`
+2. **Tests:** added `tests/Rockets.Domain.Tests` with 242 tests:
+   - **Parser:** the example from the brief, every message type, unknown types, the payload hash, and 18 invalid inputs, each of which must name the problem field.
+   - **`RocketState`:** each message type, speed changes before launch, explosion is permanent, a later launch doesn't revive an exploded rocket, unknown messages change nothing, and overflow throws.
+   - **`RocketLedger`:** advancing the checkpoint, pending messages above a gap, filling a gap, messages arriving before the launch, duplicates below the checkpoint and in pending (with a payload-mismatch flag), an unknown type filling a gap, the wrong channel, and a failed apply leaving the ledger unchanged.
+   - **Property tests:** 200 seeds, each shuffling a generated sequence of up to 300 messages and redelivering about 20% of them. After every delivery, the ledger is checked against a reference that applies all distinct messages received so far in order. There is also a test where messages arrive in reverse order.
+3. **Red:** 241 of 242 failed against the stubs. The one that passed checks the initial state, which was already written.
+4. **Implementation:**
+   - `MessageParser` reads the envelope with `JsonDocument`, then picks a payload reader for that message type.
+   - `RocketState.Apply` uses `with` expressions and checked arithmetic.
+   - `RocketLedger.Apply` uses an `ImmutableSortedDictionary` for pending messages, advances the checkpoint while the next number is pending, and recomputes the current state in O(number pending).
+5. **Green:** all 256 tests passed (242 domain and 14 capture), with 0 build warnings.
+6. **Mutation check** (added because everything passed on the first run): four bugs were planted one at a time, and the files were restored afterwards. Failing tests per bug:
+   - the current state ignores pending messages: 202
+   - pending messages applied in reverse order: 198
+   - a message at the checkpoint isn't treated as a duplicate: 39
+   - a speed decrease adds instead of subtracting: 3, all in `RocketStateTests`, as designed, because the property tests use `Apply` in their reference calculation
+
+**Decisions** (in `docs/decision-log.md`; the developer can override them in review)
+- Unknown message types fill their place in the sequence, so they don't stop the checkpoint.
+- The payload hash ignores `messageTime` and formatting.
+- `by` and `launchSpeed` must be non-negative.
+- Speed isn't clamped at 0.
+- A later `RocketLaunched` doesn't revive an exploded rocket.
+
+**Updated docs:** ticked Phase 1 in the plan (plus the added mutation check), added the Phase 1 section to the decision log, and described the domain in `CLAUDE.md`. Not committed yet, so the phase can be reviewed first.
+
+---
+
+## 2026-10-01 · 19. Commit Phase 1
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed Phase 1 on `main`: the domain model, its tests, the doc updates, and diary entries 18–19.

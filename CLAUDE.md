@@ -4,7 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status and commands
 
-Work follows the phases in `docs/implementation-plan.md` (Phase 0 is done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+Work follows the phases in `docs/implementation-plan.md` (Phases 0–1 are done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+
+Architecture so far:
+- `src/Rockets.Domain` is pure code with no IO.
+  - `Messages/MessageParser` validates an envelope and reads its payload according to `messageType`. Unknown types become `UnknownMessage`.
+  - `RocketState.Apply` applies one message, and callers must apply messages in messageNumber order.
+  - `RocketLedger` is the immutable ordering model for one rocket. It holds a checkpoint (the exact state for messages 1..N), the pending messages above N, and the current state (the checkpoint plus pending, applied in order).
+  - Domain changes must keep `RocketLedgerPropertyTests` green. Those seeded shuffle-and-redelivery runs check the ledger after every step.
 
 - Build: `dotnet build` (.NET 10 SDK, warnings are errors, package versions in `Directory.Packages.props`)
 - Test: `dotnet test`. xUnit v3 runs on Microsoft.Testing.Platform, which `global.json` opts into, so VSTest options don't apply.

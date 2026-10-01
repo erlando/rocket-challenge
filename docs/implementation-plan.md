@@ -236,7 +236,7 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
   - rejected messages get 2xx
   - the ground truth is the deterministic capture
 
-### Phase 1: Domain model and ordering (~1h)
+### Phase 1: Domain model and ordering (~1h) ✅
 
 **Work**
 - Message types, polymorphic JSON parsing and validation.
@@ -244,11 +244,12 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
 - `RocketLedger`: checkpoint advance, the pending buffer, duplicate detection with the payload-hash check, and the current state.
 
 **Verify**
-- [ ] Unit tests for each message type, a message arriving before launch, the explosion rule, overflow, and validation failures.
-- [ ] A property-style test that takes a generated message sequence, shuffles it with a seeded random generator, and injects duplicates. It checks that:
+- [x] Unit tests for each message type, a message arriving before launch, the explosion rule, overflow, and validation failures.
+- [x] A property-style test that takes a generated message sequence, shuffles it with a seeded random generator, and injects duplicates. It checks that:
   - the final state equals applying the messages in order
   - the checkpoint never moves past the first gap
   - after every step, the current state equals the checkpoint plus pending messages applied in order, skipping gaps
+- [x] Added: a mutation check. Four deliberately planted bugs each make tests fail, which shows the tests can catch real mistakes.
 
 ### Phase 2: Storage and the SQLite store (~0.75h)
 
