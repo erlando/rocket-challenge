@@ -2,13 +2,23 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status
+## Status and commands
 
-The repository is empty apart from a .NET `.gitignore`, so the solution is expected to be written in C#/.NET. No projects, build commands or tests exist yet. Update this file with the real build, test and run commands, and the architecture, once they exist.
+Work follows the phases in `docs/implementation-plan.md` (Phase 0 is done). Record decisions per phase in `docs/decision-log.md`. Update this file as the architecture takes shape.
+
+- Build: `dotnet build` (.NET 10 SDK, warnings are errors, package versions in `Directory.Packages.props`)
+- Test: `dotnet test`. xUnit v3 runs on Microsoft.Testing.Platform, which `global.json` opts into, so VSTest options don't apply.
+- Run a single test: `dotnet test --project tests/<Project> --filter-method "*Name*"` (also `--filter-class`)
+- Run the service: `dotnet run --project src/Rockets.Api`, which listens on http://localhost:8088.
+- Capture and probe tool: `tools/Rockets.Capture`, with the commands `serve`, `analyze <file>` and `compare <a> <b>`.
+  - `scripts/probe.sh <name> <timeout> [rockets args] -- [server args]` runs the test program against the capture server and prints the analysis.
+  - Captures go in `artifacts/`, which is git-ignored.
+
+The test program opens a new connection for every message. On Windows, two back-to-back 100k runs use up the client ports for about a minute (TIME_WAIT), so wait between large runs.
 
 ## What this repo is for
 
-This is a solution to Lunar's backend engineer challenge "Rockets". The challenge brief is in `docs/CHALLENGE.md` and is the source of truth for requirements. It is an exact copy of `README.md` in `../lunar-backend-engineer-challenge/`, which also holds the test program.
+This is a solution to Lunar's backend engineer challenge "Rockets". The challenge brief is in `docs/CHALLENGE.md` and is the source of truth for requirements. It is an exact copy of the README that came with the challenge. The repo must stay self-contained: never reference files outside it.
 
 The service consumes JSON messages that rockets POST to it and exposes rocket state through a REST API meant for a dashboard. The minimum requirements are:
 - `POST /messages`: the ingestion endpoint the test program posts to.
@@ -30,10 +40,10 @@ The service consumes JSON messages that rockets POST to it and exposes rocket st
 
 ## Running the test program
 
-The test program is in `../lunar-backend-engineer-challenge/windows_amd64/rockets.exe` (other OS/arch builds are next to it):
+The test program is vendored in `vendor/rockets/<os>_<arch>/` (Windows: `vendor/rockets/windows_amd64/rockets.exe`):
 
 ```
-../lunar-backend-engineer-challenge/windows_amd64/rockets.exe launch "http://localhost:8088/messages" --message-delay=500ms --concurrency-level=1
+vendor/rockets/windows_amd64/rockets.exe launch "http://localhost:8088/messages" --message-delay=500ms --concurrency-level=1
 ```
 
 Lunar will grade the solution by running the test program **with its default flag values**, so the service must listen on `http://localhost:8088/messages`. Use `rockets.exe launch --help` to see the flags, such as higher concurrency for stress testing.

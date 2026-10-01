@@ -38,6 +38,27 @@ The grading run uses the defaults of `rockets launch`:
 
 So the service must handle about 100k messages, sent three at a time as fast as it answers, with redelivery on any non-2xx response. At most three requests are in flight at once, so a batch of commits never holds more than three messages during the grading run.
 
+### Observed behaviour of the test program (Phase 0)
+
+Details are in [devdiary.md](devdiary.md), entry 15.
+- **Determinism:** two runs with seed 444 sent exactly the same 100,000 messages, ignoring `messageTime`. A capture of one run is the ground truth for the oracle.
+- **The data:**
+  - There are 20 rockets, with up to 6,498 messages each.
+  - Every rocket starts at #1 with `RocketLaunched`, and there are no gaps.
+  - 6 rockets explode, and no messages are numbered after an explosion.
+  - Speed never goes below 500.
+- **Reordering and duplicates:**
+  - Reordering comes only from concurrent requests, and it depends on timing. The furthest a message arrived out of place was 2 positions in one run and 279 in another.
+  - There are no duplicates when every message gets a 2xx.
+- **Retries:**
+  - A 4xx, a 5xx and a refused connection are all retried after a fixed 500 ms, again and again.
+  - The client times out after about 10 s and then resends. If the first attempt is still being processed, that creates a real duplicate.
+- **When the run ends:**
+  - Retries that are still waiting when the program has generated its last message are dropped, and it still exits 0. So a non-2xx near the end of a run loses that message.
+  - The program can also crash (`panic: send on closed channel`) when a retry overlaps its shutdown.
+- **Connections:** the test program opens a new connection for every message. On Windows, two back-to-back 100k runs use up the client ports (TIME_WAIT) for about a minute.
+- **Speed:** a capture server that does no work handles the whole default run in about 3 s, roughly 33k messages per second.
+
 ## 2. Architecture
 
 ### 2.1 Design decisions
@@ -106,7 +127,7 @@ Each rocket is represented by an immutable `RocketLedger`:
 - `RocketLaunched` sets the type, the launch speed and the mission (counted as the mission at message #1).
 - `RocketSpeedIncreased` and `RocketSpeedDecreased` add or subtract `by`, using checked arithmetic so an overflow is an error, not a wrong number.
 - `RocketMissionChanged` sets the mission.
-- `RocketExploded` sets the status to exploded and records the reason. The status is permanent, while other fields keep updating. This assumption is checked against real traffic in Phase 0.
+- `RocketExploded` sets the status to exploded and records the reason. The status is permanent, while other fields keep updating. Phase 0 found no messages after an explosion with seed 444, so this rule doesn't affect the graded run. It remains a documented assumption.
 - Until launch data arrives, the status is `AwaitingLaunch`. This stops a dashboard from showing a speed made of changes alone as if it were real.
 - `updatedAt` is the `messageTime` of the highest-numbered message applied to the current state. It is deterministic, unlike the time a message was received. `launchedAt` is the `messageTime` of `RocketLaunched`.
 
@@ -166,11 +187,11 @@ A message can fail in two ways, and they are handled differently:
 
 | Situation | Response |
 |---|---|
-| A problem with a single message | Recorded in `rejected_messages` and logged. The response is 400 if Phase 0 shows that the test program doesn't resend after a 4xx. If it does resend, the response is 2xx, so a message that can never succeed doesn't loop forever. |
+| A problem with a single message | Recorded in `rejected_messages` and logged, and answered with 2xx. Phase 0 showed that the test program resends after a 4xx just as after a 5xx, so a 4xx would only make it retry a message that can never succeed. |
 | Unknown `messageType` | Stored and acknowledged with 2xx, but not applied. It is counted and logged, so new message types don't break the service. |
 | Same number, different payload | 2xx, and the first write wins. The mismatch is logged and counted (see §2.4). |
 | Storage error | 503 for the batch, then the affected rockets are reloaded from the store. A redelivered message is safe because writes are idempotent. |
-| Write queue full | The request waits with a timeout, then gets 503. |
+| Write queue full | The request waits with a timeout, then gets 503. The timeout (about 5 s) must stay well below the client's timeout of about 10 s, so the service answers before the client gives up and sends a duplicate. |
 | Client disconnects | `RequestAborted` cancels only the wait to get into the queue. It never cancels a write that is already being processed. |
 | Shutdown | The service stops accepting messages and drains the queue before exiting. |
 
@@ -185,11 +206,14 @@ Every phase ends with:
 
 Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 is not included.
 
-### Phase 0: Skeleton and probing the test program (~0.75h)
+### Phase 0: Skeleton and probing the test program (~0.75h) ✅
 
 **Work**
 - Create the solution with the project layout from §2.3.
-- Make `Rockets.Api` listen on `http://localhost:8088`. For now, `POST /messages` appends each raw body to an NDJSON capture file and returns 204.
+- Make `Rockets.Api` listen on `http://localhost:8088`.
+- A separate developer tool, `tools/Rockets.Capture`, serves `POST /messages` on port 8088 and appends each delivery attempt to an NDJSON capture file. It was moved out of `Rockets.Api` to keep throwaway code out of the service.
+  - Probe options make the first attempt of each message fail or stall.
+  - `scripts/probe.sh` runs the test program against it.
 - Add a small analysis script or test that reports on the captured traffic:
   - whether numbering starts at 1 and `RocketLaunched` is always #1
   - the duplicate rate
@@ -204,10 +228,13 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
   - a refused connection, with the service hard-killed mid-run
 
 **Verify**
-- [ ] `dotnet build` and `dotnet test` pass.
-- [ ] `rockets.exe launch "http://localhost:8088/messages"` with default flags completes with no errors.
-- [ ] The traffic findings, the determinism result and the error behaviour are recorded in the dev diary.
-- [ ] The open choices in §2.4 and §2.6 are settled from these findings: the explosion rule, the 4xx-or-2xx response for rejected messages, and the source of ground truth.
+- [x] `dotnet build` and `dotnet test` pass.
+- [x] `rockets.exe launch "http://localhost:8088/messages"` with default flags completes with no errors.
+- [x] The traffic findings, the determinism result and the error behaviour are recorded in the dev diary (entry 15) and summarised in §1.
+- [x] The open choices in §2.4 and §2.6 are settled from these findings:
+  - the explosion rule stays an assumption
+  - rejected messages get 2xx
+  - the ground truth is the deterministic capture
 
 ### Phase 1: Domain model and ordering (~1h)
 
@@ -274,14 +301,16 @@ Hour estimates are measured against the 6-hour budget and add up to 6h. Phase 6 
   - starts the service on a fresh database
   - runs `rockets.exe` with the defaults (with a quick `--max-messages` variant for fast runs)
   - runs the oracle
+  - waits for client ports in TIME_WAIT to free up between back-to-back 100k runs, because the test program opens a new connection for every message
 - **The oracle checks against ground truth from outside the service.**
-  - The expected messages come from the deterministic capture from Phase 0. If runs turned out not to be deterministic, they come instead from a thin logging proxy in front of the service, which records every message that got a 2xx.
+  - The expected messages come from a capture of a seed-444 run. Phase 0 showed these runs are deterministic, so no logging proxy is needed. The capture is regenerated by the script, not committed.
   - The oracle is a deliberately separate, simple implementation: it deduplicates the expected messages, sorts each rocket's messages, and folds them from scratch.
   - It asserts that its result equals `GET /rockets` for every rocket, and that every expected message is in the service's log.
   - It asserts that every rocket has `missingMessageCount == 0` and a checkpoint equal to `lastMessageNumber`.
 - **A crash test:** hard-kill the service mid-run (`Stop-Process -Force`), restart it, and let `rockets.exe` resend.
+  - Phase 0 showed that it keeps retrying refused connections every 500 ms.
+  - Use `--message-delay`, so the run lasts well beyond the restart. Retries still waiting when the test program finishes are dropped.
   - The oracle must still pass. That shows no acknowledged message was lost, because the expected messages come from outside the service.
-  - If Phase 0 shows that `rockets.exe` gives up on a refused connection, fall back to an in-process test instead. It kills a child-process host while posting from its own deterministic generator.
 - **A stress run** at `--concurrency-level 20`.
 
 **Verify**

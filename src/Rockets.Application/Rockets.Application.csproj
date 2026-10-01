@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Rockets.Domain\Rockets.Domain.csproj" />
+  </ItemGroup>
+</Project>

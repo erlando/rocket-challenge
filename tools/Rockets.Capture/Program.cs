@@ -1,0 +1,24 @@
+using Rockets.Capture;
+
+// Developer tool for observing what the rockets test program actually sends.
+//   serve   [--Capture:Path=<file>] [--Probe:FirstAttemptStatus=<code>] [--Probe:FirstAttemptDelayMs=<ms>] [--Urls=<url>]
+//   analyze <capture.ndjson>
+//   compare <a.ndjson> <b.ndjson>
+return args.FirstOrDefault() switch
+{
+    "serve" => await CaptureServer.RunAsync(args[1..]),
+    "analyze" when args.Length == 2 => CaptureAnalyzer.Run(args[1]),
+    "compare" when args.Length == 3 => CaptureComparer.Run(args[1], args[2]),
+    _ => Usage(),
+};
+
+static int Usage()
+{
+    Console.Error.WriteLine("""
+        Usage:
+          serve   [--Capture:Path=<file>] [--Probe:FirstAttemptStatus=<code>] [--Probe:FirstAttemptDelayMs=<ms>] [--Urls=<url>]
+          analyze <capture.ndjson>
+          compare <a.ndjson> <b.ndjson>
+        """);
+    return 2;
+}

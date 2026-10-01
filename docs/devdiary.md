@@ -255,3 +255,87 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
   - L6: the e2e script requires `pwsh` and picks the binary by OS and architecture
   - L7: not acted on, because the separate storage project keeps all SQL in one place
 - Committed `.gitattributes`, the revised plan and diary entries 13–14 on `main`.
+
+---
+
+## 2026-10-01 · 15. Phase 0: skeleton and probing the test program
+
+**Prompt**
+> start phase 0
+
+**Actions**
+- **Solution skeleton:**
+  - Created `RocketChallenge.slnx` with `Rockets.Domain`, `Rockets.Application`, `Rockets.Storage.Sqlite` and `Rockets.Api` (port 8088, `/health` only), with the project references set up in layers.
+  - Added `global.json`, `Directory.Build.props` (nullable, warnings as errors) and central package management.
+- **Deviation from the plan:** the capture server and the analysis went into a separate tool, `tools/Rockets.Capture`, instead of `Rockets.Api`. This keeps throwaway code out of the service, and the tool is reused for the Phase 4 oracle. It has three commands:
+  - `serve`: records every delivery attempt; probe options can fail or stall the first attempt of each message
+  - `analyze`: reports delivery, ordering and content statistics
+  - `compare`: checks whether two captures hold the same messages
+- Added `scripts/probe.sh`, which picks the right `rockets` binary for the OS and architecture.
+- **Tests:** 14 unit tests for the capture tool (record round-trip, analyzer statistics, comparer).
+- **Setup problems fixed:**
+  - xUnit v3 needed a global `using Xunit`.
+  - On the .NET 10 SDK, xUnit v3 no longer supports VSTest under `dotnet test`. Opted into Microsoft.Testing.Platform in `global.json`, and dropped `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio`.
+  - The analyzer couldn't read a capture the server still had open. It now opens files with `FileShare.ReadWrite`.
+
+**Findings**
+- **Default run:** 100,000 messages in about 3 s against the capture server, exit code 0.
+  - 20 rockets, up to 6,498 messages each.
+  - Every rocket starts at #1 with `RocketLaunched`, and there are no gaps.
+  - 6 explosions, and no messages after them.
+  - Speed never goes below 500.
+  - No duplicates when every message gets a 2xx.
+- **Determinism:** two seed-444 runs sent exactly the same 100,000 messages (`compare` reported EQUAL). Their reordering differed: the furthest a message arrived out of place was 2 positions in one run and 279 in the other, so reordering depends on timing and comes only from concurrent requests.
+- **4xx and 5xx (50 messages, first attempt failed):**
+  - Both are retried the same way, after a fixed 500 ms.
+  - Retries still waiting when the program has generated its last message are dropped ("Redelivering message failed: writer closed"), and the program still exits 0. In the 50 ms-delay probe, 10 of 50 messages were never delivered.
+- **Timeout (first attempt stalled 15 s):**
+  - The client times out after about 10 s and resends. The stalled first attempt still completes, so the server receives a real duplicate.
+  - `rockets.exe` crashed with `panic: send on closed channel` (exit 2) when a retry overlapped its shutdown.
+- **Hard kill mid-run (500 messages, 20 ms delay; killed for 3 s, then restarted):**
+  - 562 refused connections, each retried every 500 ms.
+  - All 500 messages were delivered after the restart, with no gaps. The crash test is viable if the run outlasts the restart.
+- **Ports:** `rockets.exe` opens a new connection for every message. After two 100k runs, 17,384 client sockets sat in TIME_WAIT, and the next run failed with "Only one usage of each socket address". The sockets drained in under a minute.
+
+**Decisions settled from the findings** (as the plan prescribed; the developer can override them in review)
+- The oracle's ground truth is a deterministic seed-444 capture, so no logging proxy is needed.
+- Rejected messages get 2xx, because a 4xx is retried like a 5xx.
+- The wait for a full queue is capped at about 5 s, below the client's 10 s timeout. A 503 near the end of a run loses the message, so the service shouldn't rely on redelivery under normal load.
+- The explosion rule stays a documented assumption, since the seed-444 data never exercises it.
+- The crash test uses `--message-delay`, so the run outlasts the restart. The e2e script waits for TIME_WAIT between large runs.
+
+**Updated docs**
+- Recorded the observed behaviour in `docs/implementation-plan.md` §1, settled §2.4 and §2.6, ticked Phase 0, and adjusted Phase 4.
+- Started `docs/decision-log.md`.
+- Updated `CLAUDE.md` with the build, test and probe commands.
+
+**Verification:** `dotnet build` has 0 warnings and 0 errors, and `dotnet test` passes 14 of 14. The default `rockets.exe` run completed with exit 0. Not committed yet, so the phase diff can be reviewed first.
+
+---
+
+## 2026-10-01 · 16. Make the repo self-contained
+
+**Prompt**
+> This repo needs to be self-contained. Move the rocket binaries from the external folder into a folder in this repo
+
+**Actions**
+- Moved the six `rockets` binaries (version 0.1.0, about 9 MB each, about 55 MB in total) from `../lunar-backend-engineer-challenge/` to `vendor/rockets/<os>_<arch>/`. The original zip stays outside the repo as a backup.
+- Added `vendor/rockets/README.md` with the source, version and usage.
+- Marked the binaries as `binary` in `.gitattributes`, so the LF rule never touches them.
+- Pointed `scripts/probe.sh` and `CLAUDE.md` at `vendor/rockets/`. `CLAUDE.md` now states the rule that the repo must not reference anything outside itself. Older diary entries still mention the old path, because they record what happened at the time.
+- Saved an assistant memory: the repo must stay self-contained.
+- The macOS and Linux binaries must be committed with the executable bit (`git update-index --chmod=+x`), because Windows doesn't record it.
+
+**Verification:** no file except the diary references the external folder. `scripts/probe.sh` ran a 20-message probe from the vendored binary with exit 0.
+
+---
+
+## 2026-10-01 · 17. Commit Phase 0 and the vendored binaries
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed on `main` in two commits:
+  - the vendored `rockets` binaries, with the executable bit set on the macOS and Linux builds
+  - Phase 0: the skeleton, the capture tool and its tests, the probe script, the plan and doc updates, and diary entries 15–17
