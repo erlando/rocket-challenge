@@ -775,3 +775,57 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed on `main`: `--Storage:ResetOnStart=true` and `IMessageStore.ClearAsync` (both stores), the new contract and API tests, the README section "Starting with a clean database", the decision log and `CLAUDE.md` updates, and diary entries 34–38.
+
+---
+
+## 2026-10-02 · 39. Zip for Lunar
+
+**Prompt**
+> prepare a zip file of the project to send to Lunar
+
+**Decisions** (made by default and reported; the brief doesn't say what format a submission should take)
+- The zip holds a fresh clone of `main` *with its git history*, so reviewers can follow the phase-by-phase commits alongside this diary. The clone's `origin` remote is removed, so the zip doesn't point at a path on this machine.
+- Only tracked files go in: no `bin/`, `obj/`, databases, `artifacts/` or test results. Files with the executable bit in git (the vendored test program) keep it in the zip, so they run on macOS and Linux after unzipping.
+- The zip is written to `artifacts/submission/`, which git ignores.
+
+**Actions**
+- Cloned `main` (at `b350aa4`, which matches `origin/main` on GitHub) into the scratchpad, removed the `origin` remote, ran `git gc`, and zipped the clone with a small Python script. The script copies each file's git mode into the zip, so the vendored macOS and Linux binaries and the scripts stay executable.
+- Output: `artifacts/submission/rocket-challenge.zip`, 62.5 MB with 111 files. Of that, 31.1 MB is the vendored test program and 31.3 MB is the git history, which mostly holds the same binaries again. The source and docs take about 0.1 MB.
+- **Bug found while checking:** the first zip held only files. After `gc`, `.git/refs/heads` and `.git/refs/tags` are empty directories, so they were lost and the extracted folder wasn't a git repository. The zip now holds directory entries as well.
+
+**Verification** (on a copy extracted with PowerShell's `Expand-Archive`, as a Windows reviewer would)
+- `git status` is clean, `git log` shows all 16 commits, there is no remote, and `git fsck` reports nothing.
+- There are no `bin/`, `obj/`, databases or `artifacts/` in the zip.
+- `dotnet test` gives 325 tests (312 passed, 13 Postgres skipped without Docker).
+- `pwsh ./scripts/e2e.ps1 -Scenario quick` passes the oracle: 10,000 messages in 5.4 s.
+- This diary entry was written after `b350aa4`, so it is not in the zip.
+
+---
+
+## 2026-10-02 · 40. Zip without git history
+
+**Prompt**
+> make a zip without git history
+
+**Actions**
+- Built `artifacts/submission/rocket-challenge-no-history.zip` with `git archive`. It contains the tracked files only, under a `rocket-challenge/` folder, and keeps the executable bits.
+- The files come from `git stash create`, which records the working tree as a commit object without changing the branch, the index or the files. That way the uncommitted diary entries 39–40 are in the zip, and nothing else differs from `b350aa4`.
+- 31.2 MB with 83 files. That's half the size of the zip with history, because the vendored binaries are now stored only once.
+
+**Verification** (on a copy extracted with `Expand-Archive`)
+- There is no `.git`, the top level is the same as the repo, and diary entry 40 is included.
+- `dotnet test` gives 325 tests (312 passed, 13 Postgres skipped without Docker).
+- `pwsh ./scripts/e2e.ps1 -Scenario quick` passes the oracle (10,000 messages, 5.4 s), so nothing depends on git being present.
+- The macOS and Linux binaries and `probe.sh` keep mode `100755` in the zip.
+- After this entry was written, the zip was rebuilt once from a new snapshot so that it holds the finished entry. Only `docs/devdiary.md` differs from the verified build.
+
+---
+
+## 2026-10-02 · 41. Commit and push
+
+**Prompt**
+> commit and push
+
+**Actions**
+- Committed diary entries 39–41 (the two submission zips and this entry) on `main`, and pushed `main` to `origin` on GitHub.
+- The zips in `artifacts/submission/` are not in git. The zip with history still ends at `b350aa4`, so it lacks this commit. The no-history zip has entries 39–40 but not this one.
