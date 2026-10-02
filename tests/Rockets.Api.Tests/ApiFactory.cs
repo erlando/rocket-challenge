@@ -11,7 +11,8 @@ using Rockets.Application.Storage;
 namespace Rockets.Api.Tests;
 
 /// <summary>Hosts the real service in memory, on its own temporary SQLite database.</summary>
-public sealed class ApiFactory(string? databasePath = null, IMessageStore? store = null) : WebApplicationFactory<Program>
+public sealed class ApiFactory(string? databasePath = null, IMessageStore? store = null, bool resetOnStart = false)
+    : WebApplicationFactory<Program>
 {
     public string DatabasePath { get; } = databasePath ?? Path.Combine(Path.GetTempPath(), $"rockets-api-{Guid.NewGuid():N}.db");
 
@@ -19,6 +20,10 @@ public sealed class ApiFactory(string? databasePath = null, IMessageStore? store
     {
         builder.UseSetting("Storage:DatabasePath", DatabasePath);
         builder.UseSetting("Storage:Synchronous", "Normal");
+        if (resetOnStart)
+        {
+            builder.UseSetting("Storage:ResetOnStart", "true");
+        }
         if (store is not null)
         {
             builder.ConfigureTestServices(services => services.AddSingleton(store));

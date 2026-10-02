@@ -219,3 +219,20 @@ The crash run shows at-least-once delivery handled correctly:
 - The obvious optimisation is one round trip per batch: a multi-row `INSERT … ON CONFLICT DO NOTHING RETURNING`, then one `SELECT` of the stored hashes for the conflicts. It isn't built, because with this client batches are about one message, so it would barely help.
 
 **Docker housekeeping.** Docker Desktop wasn't running when the phase started. It was started for the tests and the end-to-end run, the compose container and its volume were removed with `down -v`, and Docker Desktop was stopped again, as it had been before.
+
+## After Phase 6: Starting with a clean database
+
+**Standalone executable: not pursued.** The developer asked for a way to run the service without the .NET SDK. A self-contained single-file publish works, but it is about 52 MB per platform, and `appsettings.json` has to travel with it. When asked how to deliver it, the developer decided the current deployment (`dotnet run`) is fine. What was missing was a clean start.
+
+**`--Storage:ResetOnStart=true`.** Before this, starting clean meant deleting `rockets.db` and its `-wal`/`-shm` files by hand, and with Postgres, dropping the tables.
+- It is a configuration key like the other `Storage:` settings, so it also works as the environment variable `Storage__ResetOnStart=true`. A bare `--reset` switch was considered. The configuration system needs a value for every key, so it would have meant parsing arguments by hand for one flag.
+- `IMessageStore.ClearAsync` deletes all messages and rejections in one transaction, keeping the schema, and returns the number of messages deleted. Both stores implement it, and three new contract tests cover it.
+- The store clears rows instead of deleting the SQLite file. That works the same for both providers, needs no file handling with pooled connections or the WAL, and is atomic. The SQLite file keeps its size until it is reused, which doesn't matter at this scale.
+- `IngestionHostedService` clears the log before the pipeline replays it, so the service starts with no rockets and accepts no requests until the clear is done. It logs a warning with the number of deleted messages, because the option destroys data.
+- The option is not a request-time endpoint (such as `DELETE /rockets`). Clearing while the writer runs would race with in-flight batches, and a destructive endpoint on an unauthenticated service is a bad default.
+
+**Verification.**
+- Red first: the new contract tests failed against `NotImplementedException` stubs, and so did the API test.
+- 325 tests pass, with Postgres run under Docker (29 storage tests).
+- Four planted bugs were each caught: not deleting rejections (in SQLite, and in Postgres), returning 0 as the count, and the hosted service reading the wrong key.
+- A smoke test of the Release service with a temporary database showed one rocket, then none after starting with the option (with the warning logged), then still none after a plain restart.

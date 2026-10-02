@@ -97,6 +97,20 @@ public sealed class PostgresMessageStore : IMessageStore, IAsyncDisposable
         }
     }
 
+    public async Task<long> ClearAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var rejections = new NpgsqlCommand("DELETE FROM rejected_messages", connection, transaction))
+        {
+            await rejections.ExecuteNonQueryAsync(cancellationToken);
+        }
+        await using var messages = new NpgsqlCommand("DELETE FROM messages", connection, transaction);
+        long deleted = await messages.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return deleted;
+    }
+
     public ValueTask DisposeAsync() => _dataSource.DisposeAsync();
 
     private async Task<List<StoredDuplicate>> InsertMessagesAsync(

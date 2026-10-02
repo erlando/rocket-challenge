@@ -31,6 +31,12 @@ public interface IMessageStore
 
     /// <summary>Streams the rejected messages in the order they were recorded.</summary>
     IAsyncEnumerable<RejectedMessage> ReadRejectedAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes every stored message and rejected message in one transaction, keeping the schema, and returns
+    /// the number of messages deleted. Used to start the service on a clean log; not called while it is running.
+    /// </summary>
+    Task<long> ClearAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>A request body that could not be accepted as a message, kept for diagnosis.</summary>

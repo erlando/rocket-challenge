@@ -118,6 +118,17 @@ public sealed class FakeMessageStore : IMessageStore
         }
     }
 
+    public Task<long> ClearAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            long deleted = _messages.Count;
+            _messages.Clear();
+            _rejected.Clear();
+            return Task.FromResult(deleted);
+        }
+    }
+
     private static TaskCompletionSource Completed()
     {
         var completed = new TaskCompletionSource();

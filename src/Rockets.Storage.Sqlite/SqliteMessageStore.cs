@@ -114,6 +114,20 @@ public sealed class SqliteMessageStore : IMessageStore
         }
     }
 
+    public async Task<long> ClearAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM rejected_messages";
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        command.CommandText = "DELETE FROM messages";
+        long deleted = await command.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return deleted;
+    }
+
     internal async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
     {
         var connection = new SqliteConnection(_connectionString);

@@ -135,6 +135,37 @@ public abstract class MessageStoreContractTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Clearing_deletes_every_message_and_rejection_and_reports_the_count()
+    {
+        await Store.CommitAsync([Launched("a"), SpeedIncreased("a", 2), Launched("b")], [Rejection()]);
+
+        var deleted = await Store.ClearAsync();
+
+        Assert.Equal(3, deleted);
+        Assert.Empty(await Store.ReadAllAsync().ToListAsync());
+        Assert.Empty(await Store.ReadRejectedAsync().ToListAsync());
+    }
+
+    [Fact]
+    public async Task A_cleared_store_accepts_the_same_messages_again()
+    {
+        await Store.CommitAsync([Launched("a"), SpeedIncreased("a", 2)], []);
+        await Store.ClearAsync();
+
+        var result = await Store.CommitAsync([Launched("a"), SpeedIncreased("a", 2, by: 7)], [Rejection()]);
+
+        Assert.Empty(result.Duplicates);
+        Assert.Equal([Launched("a"), SpeedIncreased("a", 2, by: 7)], await Store.ReadAllAsync().ToListAsync());
+        Assert.Single(await Store.ReadRejectedAsync().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Clearing_an_empty_store_deletes_nothing()
+    {
+        Assert.Equal(0, await Store.ClearAsync());
+    }
+
+    [Fact]
     public async Task An_empty_commit_is_allowed()
     {
         var result = await Store.CommitAsync([], []);

@@ -15,6 +15,7 @@ Architecture so far:
 - `src/Rockets.Application/Storage/IMessageStore` is the storage seam: an append-only message log, which is the only stored state.
   - `CommitAsync(messages, rejections)` writes one atomic batch and reports duplicates, with a payload-hash mismatch flag.
   - Reads stream messages per channel in messageNumber order.
+  - `ClearAsync` deletes all messages and rejections, for a clean start only (never while the writer runs).
 - `src/Rockets.Storage.Sqlite` is the default store. It uses WAL, with `synchronous=FULL` by default (the developer's choice; `NORMAL` is configurable).
 - `src/Rockets.Storage.Postgres` is selected with `--Storage:Provider=Postgres --Storage:ConnectionString=...`, and `docker-compose.yml` runs Postgres 18 locally.
   - SQL lives only in the two storage projects.
@@ -34,6 +35,7 @@ Architecture so far:
 - Run the service: `dotnet run --project src/Rockets.Api`, which listens on http://localhost:8088.
   - The default database is `data/rockets.db` under the app's output folder, and the full path is logged at startup.
   - Override settings with `--Storage:DatabasePath=<path>` and `--Storage:Synchronous=Normal`.
+  - `--Storage:ResetOnStart=true` starts on a clean log: `IngestionHostedService` calls `IMessageStore.ClearAsync` before the replay (any provider).
 - End-to-end: `pwsh ./scripts/e2e.ps1 [-Scenario quick|default|crash|stress|all] [-RegenerateExpected]`.
   - It runs `vendor/rockets` against the Release service on a fresh database, then runs the oracle (`Rockets.Capture verify`).
   - The oracle compares against `tests/e2e/expected-seed444-*.json`. Those files come from seed-444 captures, made with `expect`.

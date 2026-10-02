@@ -698,3 +698,80 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 
 **Actions**
 - Committed Phase 6 on `main`: the Postgres store, its Testcontainers contract tests, `docker-compose.yml`, the Postgres provider in the composition root, the oracle reading Postgres, the README and doc updates, and diary entries 32–33. Every phase in the implementation plan (0–6) is now done.
+
+---
+
+## 2026-10-02 · 34. Standalone executable
+
+**Prompt**
+> There needs to be an easier way for Lunar to run the program instead of using the dotnet SDK. Make a standalone executable available
+
+**Findings**
+- Tried a self-contained, single-file, compressed `dotnet publish` of `Rockets.Api` for `win-x64` and `linux-x64` (into the scratchpad, not the repo). Both build without warnings and need no .NET on the target machine, but each executable is about 52 MB.
+- `appsettings.json` is published next to the executable rather than inside it. Without it the service would fall back to port 5000, so the file has to travel with the executable, or the defaults have to be built in.
+- `vendor/rockets` covers six platforms (macOS, Linux and Windows on amd64/arm64, plus windows_386).
+
+**Decisions raised with the developer**
+- How Lunar gets the executables (a publish script producing zips for a release or the submission, committing them in the repo, or a Docker image instead), and which platforms to build. The developer wanted to clarify the questions before answering, so nothing is built yet.
+- **Outcome:** in the next prompt, the developer decided the current deployment is fine and asked for a clean-start option instead (entry 35). No executable was built or committed.
+
+---
+
+## 2026-10-02 · 35. Clean database on start
+
+**Prompt**
+> The current deployment is fine. But there needs to be an option for starting the program with a clean database. Right now the user needs to delete the database file.
+
+**Decisions** (small enough to decide and report; the reasons are in the decision log under "After Phase 6")
+- Added the option `--Storage:ResetOnStart=true`, spelled like the existing `Storage:` settings. It also works as the environment variable `Storage__ResetOnStart`.
+- Added `IMessageStore.ClearAsync`, which deletes rows in one transaction instead of deleting the file, so it works the same for SQLite and Postgres.
+- The service clears the log at startup, before the replay. It is not an HTTP endpoint, which would race with the writer and be destructive without authentication.
+
+**Actions**
+- **Test first:** three new store contract tests (clear removes messages and rejections and returns the count; a cleared store takes the same messages again without reporting them as duplicates; clearing an empty store deletes 0), plus an API test that restarts with the option, posts again, and restarts without it. They all failed against stubs.
+- **Implemented:** `ClearAsync` in the SQLite and Postgres stores and the in-memory test double, and the reset in `IngestionHostedService`, which logs a warning with the number of messages deleted.
+- **Updated docs:** the README (a "Starting clean" note in the quick start, and the test and mutation counts), `CLAUDE.md` and the decision log.
+
+**Verification**
+- `dotnet test`: 325 tests pass.
+- With Docker Desktop started for the run, all 29 storage contract tests pass on SQLite and Postgres. Docker Desktop was stopped again afterwards.
+- Four planted bugs were each caught.
+- A smoke test of the Release service on a temporary database showed one rocket, then none after `--Storage:ResetOnStart=true` (the warning reported 1 deleted message), then still none after a plain restart.
+- Not committed yet.
+
+---
+
+## 2026-10-02 · 36. Clarify the clean-start note in the README
+
+**Prompt**
+> The "Starting clean" note in the readme is unclear. Please clarify
+
+**Actions**
+- Replaced the one-line bullet in the quick start with its own subsection, "Starting with a clean database", placed before "Running on Postgres". It covers:
+  - why you would want a clean start: the data stays between runs, so `GET /rockets` mixes old and new rockets
+  - the full command to copy, with `--` already in place, instead of a note to add it after `--`
+  - what happens, in order: everything is deleted before any requests are accepted, a warning is logged, and the service starts with no rockets
+  - that the option applies only to the start it is given on, and that it works for SQLite and Postgres
+- The wording "Leave it off on later restarts, or they start clean too" was confusing, so it is now "Start the service without it to keep the data as usual".
+- Only documentation changed. Not committed yet.
+
+---
+
+## 2026-10-02 · 37. Swap two README sections
+
+**Prompt**
+> Switch the "Running on Postgres" and "Starting with a clean database" sections
+
+**Actions**
+- Swapped the two subsections in the README's quick start, so "Running on Postgres" now comes before "Starting with a clean database". Their text is unchanged.
+- Not committed yet.
+
+---
+
+## 2026-10-02 · 38. Commit the clean-start option
+
+**Prompt**
+> commit it
+
+**Actions**
+- Committed on `main`: `--Storage:ResetOnStart=true` and `IMessageStore.ClearAsync` (both stores), the new contract and API tests, the README section "Starting with a clean database", the decision log and `CLAUDE.md` updates, and diary entries 34–38.

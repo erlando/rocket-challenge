@@ -12,7 +12,7 @@ It is built with .NET 10 and ASP.NET Core minimal APIs. Messages are stored in S
 | | |
 |---|---|
 | Grading run (the test program's defaults: 100,000 messages, concurrency 3) | Passes in 38–52 s with durable commits, or 6.5 s with `Synchronous=Normal` |
-| Verification | 318 automated tests (10 of them need Docker), plus end-to-end runs checked by an independent oracle (normal, crash/restart and stress on SQLite, and a default run on Postgres) |
+| Verification | 325 automated tests (13 of them need Docker), plus end-to-end runs checked by an independent oracle (normal, crash/restart and stress on SQLite, and a default run on Postgres) |
 | Design notes | [docs/decision-log.md](docs/decision-log.md) (per phase), [docs/implementation-plan.md](docs/implementation-plan.md) |
 | How AI was used | [How AI was used](#how-ai-was-used), and every prompt in [docs/devdiary.md](docs/devdiary.md) |
 
@@ -45,10 +45,24 @@ dotnet run --project src/Rockets.Api -c Release -- --Storage:Provider=Postgres  
 docker compose down -v             # remove the container and its data
 ```
 
+### Starting with a clean database
+
+The service keeps its data between runs. So if you stop the service, start it again and rerun the test program, `GET /rockets` still lists the rockets from the earlier runs alongside the new ones.
+
+To start with no rockets, add `--Storage:ResetOnStart=true` when you start the service:
+
+```sh
+dotnet run --project src/Rockets.Api -c Release -- --Storage:ResetOnStart=true
+```
+
+- **What happens:** at startup, before it accepts any requests, the service deletes every stored message. It logs a warning with the number of messages it deleted, and then starts with no rockets.
+- **Only this start:** the option applies only to the start it is given on. Start the service without it to keep the data as usual.
+- **Any database:** it works the same with SQLite and Postgres, so you never need to delete the database file by hand.
+
 ## Tests and verification
 
 ```sh
-dotnet test                                    # 318 tests; the 10 Postgres contract tests run in a Docker container and are skipped without Docker
+dotnet test                                    # 325 tests; the 13 Postgres contract tests run in a Docker container and are skipped without Docker
 pwsh ./scripts/e2e.ps1                          # end to end: 10,000 messages from the real test program, checked by the oracle
 pwsh ./scripts/e2e.ps1 -Scenario all            # quick, default (grading run), crash/restart, stress
 dotnet run -c Release --project tools/Rockets.StoreBenchmark   # SQLite commit throughput and replay time
@@ -260,11 +274,11 @@ Each phase's reasoning and measurements are in [docs/decision-log.md](docs/decis
 | Layer | What it shows |
 |---|---|
 | Domain (246 tests) | Every message type, plus validation and payload hashing. 200 seeded runs shuffle and redeliver messages and check the ledger after *every* delivery against a simple in-order fold. |
-| Storage contract (23) | The same 10 contract tests run against SQLite and against Postgres (in a Testcontainers container, skipped without Docker): atomic commits, duplicates and content mismatches, ordered reads, and a failed commit leaving nothing behind. There are also 3 SQLite-specific tests: data surviving a reopen, and the pragmas. |
+| Storage contract (29) | The same 13 contract tests run against SQLite and against Postgres (in a Testcontainers container, skipped without Docker): atomic commits, duplicates and content mismatches, ordered reads, a failed commit leaving nothing behind, and clearing the log for a clean start. There are also 3 SQLite-specific tests: data surviving a reopen, and the pragmas. |
 | Ingestion pipeline (14) | A fake store that can hold, fail, or commit and then throw, which exercises batching, error isolation, reloading after an ambiguous commit, stale rockets, a full queue, shutdown draining and disconnects. |
-| HTTP API (16) | The real host on a temporary database: response shapes, sorting, status codes, 503 on a storage failure, and state across a restart. |
+| HTTP API (17) | The real host on a temporary database: response shapes, sorting, status codes, 503 on a storage failure, state across a restart, and starting clean with `ResetOnStart`. |
 | Capture tool and oracle (19) | The tools that the measurements and the end-to-end check rely on. |
-| Mutation checks | Bugs deliberately planted in the domain, the store and the pipeline (13 in all) were each caught by the tests. |
+| Mutation checks | Bugs deliberately planted in the domain, the stores, the pipeline and the clean-start option (17 in all) were each caught by the tests. |
 | End to end (`scripts/e2e.ps1`) | The real test program against the Release service, checked by an **independent oracle**, described below. |
 
 The **oracle** (`tools/Rockets.Capture`, `expect` and `verify`) shares no code with the service.

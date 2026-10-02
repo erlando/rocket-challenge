@@ -169,6 +169,32 @@ public sealed class RocketsApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Reset_on_start_begins_with_an_empty_log()
+    {
+        await PostAllAsync(Launched(Apollo, launchSpeed: 500), Launched(Bravo), "not json");
+        await _api.DisposeAsync();
+
+        await using (var reset = new ApiFactory(_api.DatabasePath, resetOnStart: true))
+        {
+            var (_, list) = await reset.GetJsonAsync("/rockets");
+            Assert.Equal(0, list.GetProperty("count").GetInt32());
+
+            // The same message is new again, not a duplicate of the deleted one.
+            using var response = await reset.PostAsync(Launched(Apollo, launchSpeed: 700));
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            var (_, health) = await reset.GetJsonAsync("/health");
+            Assert.Equal(1, health.GetProperty("messages").GetProperty("stored").GetInt64());
+            Assert.Equal(0, health.GetProperty("messages").GetProperty("duplicates").GetInt64());
+        }
+
+        // Without the option, a restart keeps what was stored after the reset.
+        await using var restarted = new ApiFactory(_api.DatabasePath);
+        var (_, after) = await restarted.GetJsonAsync("/rockets");
+        Assert.Equal([Apollo], Channels(after));
+        Assert.Equal(700, after.GetProperty("rockets")[0].GetProperty("speed").GetInt64());
+    }
+
+    [Fact]
     public async Task A_storage_failure_is_503_so_the_message_is_resent()
     {
         await using var api = new ApiFactory(store: new FailingStore());
@@ -192,6 +218,8 @@ public sealed class RocketsApiTests : IAsyncLifetime
             Empty<RocketMessage>();
 
         public IAsyncEnumerable<RejectedMessage> ReadRejectedAsync(CancellationToken cancellationToken = default) => Empty<RejectedMessage>();
+
+        public Task<long> ClearAsync(CancellationToken cancellationToken = default) => Task.FromResult(0L);
 
         private static async IAsyncEnumerable<T> Empty<T>([EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
