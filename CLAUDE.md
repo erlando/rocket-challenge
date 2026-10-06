@@ -83,7 +83,3 @@ Lunar will grade the solution by running the test program **with its default fla
 ## Assessment context
 
 Grading looks at design trade-offs (explained), maintainability, concurrency and persistence choices, error handling, and verification through automated tests. The way AI was used is also assessed explicitly: delegation should be deliberate, with human ownership of the design. So work in small, reviewable increments. Raise design decisions such as storage, ordering and buffering strategy, or the API shape with the user instead of deciding them silently. Back changes with tests.
-
-## Dev diary
-
-For every user prompt, append an entry to `docs/devdiary.md` in the same turn as the work. Each entry has a numbered heading with the date and a title, the prompt quoted verbatim, and a summary of findings and actions, including decisions raised with the user and any verification. Follow the format of the existing entries.

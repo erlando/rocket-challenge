@@ -829,3 +829,19 @@ This is a log of the prompts given to the AI coding assistant (Claude Code) duri
 **Actions**
 - Committed diary entries 39–41 (the two submission zips and this entry) on `main`, and pushed `main` to `origin` on GitHub.
 - The zips in `artifacts/submission/` are not in git. The zip with history still ends at `b350aa4`, so it lacks this commit. The no-history zip has entries 39–40 but not this one.
+
+---
+
+## 2026-10-02 · 42. Rebuild the zip without history
+
+**Prompt**
+> rebuild the zip without history
+
+**Actions**
+- Rebuilt `artifacts/submission/rocket-challenge-no-history.zip` with `git archive` from `HEAD` (`bae5a22`), which is the same as `origin/main`. The zip now matches GitHub exactly. `git archive` also writes the commit id into the zip comment, so the zip identifies the commit it came from.
+- This entry was written after the zip was built, and it is not committed. So the zip ends at entry 41, and the working tree's diary is one entry ahead.
+
+**Verification**
+- The zip holds 83 files, the same as the files tracked at `HEAD`, and passes the zip integrity test (`testzip`).
+- Its comment is `bae5a22b…`, its last diary entry is 41, and the four macOS and Linux test-program binaries keep mode `100755`.
+- The tests and the end-to-end run were not repeated. The code is the same as in the build verified in entry 40; only `docs/devdiary.md` changed since then.

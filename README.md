@@ -14,7 +14,7 @@ It is built with .NET 10 and ASP.NET Core minimal APIs. Messages are stored in S
 | Grading run (the test program's defaults: 100,000 messages, concurrency 3) | Passes in 38–52 s with durable commits, or 6.5 s with `Synchronous=Normal` |
 | Verification | 325 automated tests (13 of them need Docker), plus end-to-end runs checked by an independent oracle (normal, crash/restart and stress on SQLite, and a default run on Postgres) |
 | Design notes | [docs/decision-log.md](docs/decision-log.md) (per phase), [docs/implementation-plan.md](docs/implementation-plan.md) |
-| How AI was used | [How AI was used](#how-ai-was-used), and every prompt in [docs/devdiary.md](docs/devdiary.md) |
+| How AI was used | [How AI was used](#how-ai-was-used), and the prompts during development in [docs/devdiary.md](docs/devdiary.md) |
 
 ## Quick start
 
@@ -336,7 +336,7 @@ docs/                        challenge brief, implementation plan, decision log,
 
 ## How AI was used
 
-The solution was built with Claude Code as a pair programmer. Every prompt and its outcome are logged in [docs/devdiary.md](docs/devdiary.md).
+The solution was built with Claude Code as a pair programmer. The prompts during development and their outcomes are logged in [docs/devdiary.md](docs/devdiary.md).
 
 **The workflow.**
 - **Planning:** the work was planned first, in plan mode, as phases with targets that could be checked ([implementation-plan.md](docs/implementation-plan.md)).
